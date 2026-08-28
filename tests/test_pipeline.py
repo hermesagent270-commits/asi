@@ -431,7 +431,7 @@ def test_pipeline_with_horde_ac_control_smoke() -> None:
     assert smoke.q_values_shape == (4, 2)
 
 
-def _terminating_horde_ac_config() -> AlbertaPipelineConfig:
+def _terminating_horde_ac_config(*, value_head_index: int = 0) -> AlbertaPipelineConfig:
     """Horde-AC config with a bootstrapping value head and a live actor trace."""
     return AlbertaPipelineConfig(
         features=Step2FeatureConfig.identity(observation_dim=3),
@@ -455,7 +455,7 @@ def _terminating_horde_ac_config() -> AlbertaPipelineConfig:
             n_actions=2,
             actor_step_size=0.02,
             actor_lamda=0.8,
-            value_head_index=0,
+            value_head_index=value_head_index,
         ),
         control_mode="horde_ac",
     )
@@ -514,6 +514,57 @@ def test_pipeline_horde_ac_honors_terminated_discount() -> None:
     np.testing.assert_array_equal(
         np.asarray(non_terminal.horde_td_targets),
         np.asarray([0.34537804, -0.18965168], dtype=np.float32),
+    )
+
+
+def test_pipeline_horde_ac_nonterminal_matches_legacy_omitted_discount() -> None:
+    """A non-terminal transition stays on the exact legacy update kernel."""
+    config = _terminating_horde_ac_config(value_head_index=1)
+    pipeline = make_alberta_pipeline(config)
+    state = pipeline.init(jr.key(11), jnp.asarray([0.7, -0.4, 0.2], dtype=jnp.float32))
+    observation = jnp.asarray([-0.3, 0.6, 0.9], dtype=jnp.float32)
+    reward = jnp.asarray(-0.4, dtype=jnp.float32)
+    cumulants = jnp.asarray([0.25, -0.4], dtype=jnp.float32)
+
+    ac_state = state.control_state.replace(critic_state=state.horde_state)
+    legacy = pipeline._control.update(  # type: ignore[attr-defined]
+        ac_state,
+        reward,
+        observation,
+        auxiliary_cumulants=cumulants[jnp.asarray([0], dtype=jnp.int32)],
+    )
+    actual = pipeline.update(
+        state,
+        observation,
+        reward,
+        jnp.asarray(0.0, dtype=jnp.float32),
+        cumulants,
+    )
+
+    chex.assert_trees_all_equal(actual.state.control_state, legacy.state)
+    chex.assert_trees_all_equal(actual.state.horde_state, legacy.critic_result.state)
+    chex.assert_trees_all_equal(actual.horde_td_targets, legacy.critic_result.td_targets)
+
+    legacy_jit = jax.jit(
+        lambda current: pipeline._control.update(  # type: ignore[attr-defined]
+            current,
+            reward,
+            observation,
+            auxiliary_cumulants=cumulants[jnp.asarray([0], dtype=jnp.int32)],
+        )
+    )(ac_state)
+    actual_jit = jax.jit(
+        lambda current: pipeline.update(
+            current,
+            observation,
+            reward,
+            jnp.asarray(0.0, dtype=jnp.float32),
+            cumulants,
+        )
+    )(state)
+    chex.assert_trees_all_equal(actual_jit.state.control_state, legacy_jit.state)
+    chex.assert_trees_all_equal(
+        actual_jit.state.horde_state, legacy_jit.critic_result.state
     )
 
 

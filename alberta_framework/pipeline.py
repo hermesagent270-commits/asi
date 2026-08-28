@@ -1574,22 +1574,28 @@ class AlbertaPipeline:
             )
             auxiliary_cumulants = horde_cumulants[aux_indices] if aux_indices.size else None
             # Only the value head's discount is a per-transition control
-            # quantity. Zero it at episode boundaries so the value head does
-            # not bootstrap through termination and the actor eligibility
-            # trace decays to zero; auxiliary GVF demons keep their configured
-            # gammas. At ``terminated == 0.0`` this reproduces the value head's
-            # configured gamma bit-for-bit, so the non-terminal path is
-            # unchanged versus omitting ``discount``.
+            # quantity. Keep non-terminal transitions on the legacy omitted-
+            # discount kernel: passing the numerically equal configured gamma
+            # selects a different JAX computation and can drift by one ULP.
+            # At termination, explicitly zero the value discount so the value
+            # head does not bootstrap and the actor trace is cleared; auxiliary
+            # GVF demons keep their configured gammas.
             value_gamma = self._horde.horde_spec.gammas[value_index]
-            control_discount = jnp.where(
-                terminated == 0.0, value_gamma, jnp.zeros_like(value_gamma)
-            )
-            ac_result = ac.update(
-                ac_state,
-                reward,
-                features,
-                auxiliary_cumulants=auxiliary_cumulants,
-                discount=control_discount,
+            ac_result = jax.lax.cond(
+                terminated == 0.0,
+                lambda: ac.update(
+                    ac_state,
+                    reward,
+                    features,
+                    auxiliary_cumulants=auxiliary_cumulants,
+                ),
+                lambda: ac.update(
+                    ac_state,
+                    reward,
+                    features,
+                    auxiliary_cumulants=auxiliary_cumulants,
+                    discount=jnp.zeros_like(value_gamma),
+                ),
             )
             new_control_state: SARSAState | HordeActorCriticState = ac_result.state
             q_values_or_policy = ac_result.policy
