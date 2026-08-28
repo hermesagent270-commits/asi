@@ -48,6 +48,7 @@ class TestInitCbpStateShapes:
         chex.assert_shape(cbp_state.utilities[0], (32,))
         chex.assert_shape(cbp_state.utilities[1], (16,))
         assert len(cbp_state.ages) == 2
+        assert len(cbp_state.utility_update_counts) == 2
         chex.assert_shape(cbp_state.ages[0], (32,))
         chex.assert_shape(cbp_state.ages[1], (16,))
         # Initial values are all zero.
@@ -55,6 +56,8 @@ class TestInitCbpStateShapes:
             chex.assert_trees_all_close(u, jnp.zeros_like(u))
         for a in cbp_state.ages:
             assert int(jnp.sum(a)) == 0
+        for count in cbp_state.utility_update_counts:
+            assert int(jnp.sum(count)) == 0
 
     def test_init_cbp_state_linear_baseline(self):
         learner = MultiHeadMLPLearner(
@@ -64,6 +67,7 @@ class TestInitCbpStateShapes:
         cbp_state = init_cbp_state(mlp_state, (), key=jr.key(1))
         assert len(cbp_state.utilities) == 0
         assert len(cbp_state.ages) == 0
+        assert len(cbp_state.utility_update_counts) == 0
 
     def test_init_cbp_state_mismatch_raises(self):
         learner = MultiHeadMLPLearner(
@@ -165,6 +169,7 @@ class TestUtilityUpdate:
         cbp_state = ContinualBackpropState(  # type: ignore[call-arg]
             utilities=(jnp.zeros(layer_size, dtype=jnp.float32),),
             ages=(jnp.zeros(layer_size, dtype=jnp.int32),),
+            utility_update_counts=(jnp.zeros(layer_size, dtype=jnp.int32),),
             replacement_accumulators=jnp.zeros(1, dtype=jnp.float32),
             rng_key=jr.key(0),
         )
@@ -193,6 +198,7 @@ class TestUtilityUpdate:
         cbp_state = ContinualBackpropState(  # type: ignore[call-arg]
             utilities=(jnp.zeros(3, dtype=jnp.float32),),
             ages=(jnp.zeros(3, dtype=jnp.int32),),
+            utility_update_counts=(jnp.zeros(3, dtype=jnp.int32),),
             replacement_accumulators=jnp.zeros(1, dtype=jnp.float32),
             rng_key=jr.key(0),
         )
@@ -214,6 +220,7 @@ class TestUtilityUpdate:
         cbp_state = ContinualBackpropState(  # type: ignore[call-arg]
             utilities=(jnp.array([0.9, 0.1], dtype=jnp.float32),),
             ages=(jnp.array([100, 100], dtype=jnp.int32),),
+            utility_update_counts=(jnp.array([100, 100], dtype=jnp.int32),),
             replacement_accumulators=jnp.zeros(1, dtype=jnp.float32),
             rng_key=jr.key(0),
         )
@@ -222,7 +229,9 @@ class TestUtilityUpdate:
         new = update_utility(cbp_state, activations, grads, 0.9)
         assert bool(jnp.all(jnp.isfinite(new.utilities[0])))
         chex.assert_trees_all_close(new.utilities[0][0], cbp_state.utilities[0][0])
-        idx, has = _select_replacement_index(new.utilities[0], new.ages[0], 10, 0.9)
+        idx, has = _select_replacement_index(
+            new.utilities[0], new.ages[0], new.utility_update_counts[0], 10, 0.9
+        )
         assert bool(has)
         assert int(idx) == 1
 
@@ -231,6 +240,7 @@ class TestUtilityUpdate:
         cbp_state = ContinualBackpropState(  # type: ignore[call-arg]
             utilities=(jnp.array([jnp.inf, jnp.inf], dtype=jnp.float32),),
             ages=(jnp.array([5, 5], dtype=jnp.int32),),
+            utility_update_counts=(jnp.array([5, 5], dtype=jnp.int32),),
             replacement_accumulators=jnp.zeros(1, dtype=jnp.float32),
             rng_key=jr.key(0),
         )
@@ -275,6 +285,76 @@ class TestWrapperUtilityGradients:
 
 
 # =============================================================================
+# Published bias-corrected utility ranking
+# =============================================================================
+
+
+class TestBiasCorrectedUtilityRanking:
+    """Replacement ranks the finite-sample-debiased utility from Eq. 8."""
+
+    def test_young_strong_unit_is_not_replaced_over_old_weak_unit(self):
+        decay = 0.99
+        counts = jnp.array([100, 700], dtype=jnp.int32)
+        ages = counts
+        true_utility = jnp.array([1.0, 0.9], dtype=jnp.float32)
+        raw = true_utility * (1.0 - jnp.asarray(decay, dtype=jnp.float32) ** counts)
+
+        idx, has = _select_replacement_index(raw, ages, counts, 100, decay)
+
+        assert bool(has)
+        assert int(idx) == 1
+
+    def test_held_nonfinite_sample_does_not_advance_debias_clock(self):
+        learner = MultiHeadMLPLearner(n_heads=1, hidden_sizes=(2,), sparsity=0.0)
+        mlp_state = learner.init(feature_dim=2, key=jr.key(1))
+        cbp_state = init_cbp_state(mlp_state, (2,), key=jr.key(2))
+        decay = 0.99
+        counts = jnp.array([200, 100], dtype=jnp.int32)
+        raw = jnp.array([1.0, 0.9], dtype=jnp.float32) * (
+            1.0 - jnp.asarray(decay, dtype=jnp.float32) ** counts
+        )
+        cbp_state = cbp_state.replace(  # type: ignore[attr-defined]
+            utilities=(raw,),
+            ages=(counts,),
+            utility_update_counts=(counts,),
+            replacement_accumulators=jnp.ones(1, dtype=jnp.float32),
+        )
+        activations = (jnp.array([jnp.inf, 1.0], dtype=jnp.float32),)
+        gradients = (jnp.array([0.0, 0.9], dtype=jnp.float32),)
+        for _ in range(150):
+            cbp_state = update_utility(cbp_state, activations, gradients, decay)
+
+        assert int(cbp_state.ages[0][0]) == 350
+        assert int(cbp_state.utility_update_counts[0][0]) == 200
+        _, replaced_state, replaced = replace_units_with_flags(
+            mlp_state,
+            cbp_state,
+            ContinualBackpropConfig(
+                decay_rate=decay,
+                replacement_rate=1.0,
+                maturity_threshold=100,
+            ),
+            sparsity=0.0,
+        )
+        assert bool(replaced[0])
+        assert int(replaced_state.ages[0][0]) == 350
+        assert int(replaced_state.ages[0][1]) == 0
+        assert int(replaced_state.utility_update_counts[0][1]) == 0
+
+    def test_correction_preserves_float64_ranking(self):
+        with jax.enable_x64():
+            decay = 0.99
+            counts = jnp.array([3, 2], dtype=jnp.int32)
+            means = jnp.array([1.0, 0.999999198952898], dtype=jnp.float64)
+            raw = means * (1.0 - jnp.asarray(decay, dtype=jnp.float64) ** counts)
+            idx, has = _select_replacement_index(raw, counts, counts, 0, decay)
+
+            assert raw.dtype == jnp.float64
+            assert bool(has)
+            assert int(idx) == 1
+
+
+# =============================================================================
 # Replacement re-initializes low-utility units
 # =============================================================================
 
@@ -296,7 +376,10 @@ class TestReplacement:
         # Force the replacement accumulator high enough to fire this step.
         accum = jnp.array([1.0], dtype=jnp.float32)
         cbp_state = cbp_state.replace(  # type: ignore[attr-defined]
-            utilities=utilities, ages=ages, replacement_accumulators=accum
+            utilities=utilities,
+            ages=ages,
+            utility_update_counts=ages,
+            replacement_accumulators=accum,
         )
 
         config = ContinualBackpropConfig(
@@ -347,6 +430,7 @@ class TestReplacement:
         cbp_state = cbp_state.replace(  # type: ignore[attr-defined]
             utilities=utilities,
             ages=ages,
+            utility_update_counts=ages,
             replacement_accumulators=jnp.array([1.0], dtype=jnp.float32),
         )
         config = ContinualBackpropConfig(
@@ -366,6 +450,7 @@ class TestReplacement:
         assert int(new_cbp.ages[0][3]) == 200
         # Utility of replaced unit should be reset to 0.
         assert float(new_cbp.utilities[0][2]) == 0.0
+        assert int(new_cbp.utility_update_counts[0][2]) == 0
 
     def test_maturity_threshold_protects_young_units(self):
         """No unit above maturity_threshold => no replacement happens."""
@@ -382,6 +467,7 @@ class TestReplacement:
         cbp_state = cbp_state.replace(  # type: ignore[attr-defined]
             utilities=utilities,
             ages=ages,
+            utility_update_counts=ages,
             replacement_accumulators=jnp.array([1.0], dtype=jnp.float32),
         )
         config = ContinualBackpropConfig(
@@ -420,6 +506,9 @@ class TestReplacement:
         for step in range(steps):
             cbp_state = cbp_state.replace(  # type: ignore[attr-defined]
                 ages=(jnp.full((n_units,), step, dtype=jnp.int32),),
+                utility_update_counts=(
+                    jnp.full((n_units,), max(step, 1), dtype=jnp.int32),
+                ),
                 utilities=(jnp.linspace(0.001, 1.0, n_units, dtype=jnp.float32),),
             )
             mlp_state, cbp_state, replaced = replace_units_with_flags(
@@ -558,6 +647,7 @@ class TestJitCompatibility:
         cbp_state = ContinualBackpropState(  # type: ignore[call-arg]
             utilities=(jnp.zeros(4, dtype=jnp.float32),),
             ages=(jnp.zeros(4, dtype=jnp.int32),),
+            utility_update_counts=(jnp.zeros(4, dtype=jnp.int32),),
             replacement_accumulators=jnp.zeros(1, dtype=jnp.float32),
             rng_key=jr.key(0),
         )
@@ -1004,6 +1094,7 @@ def _warm_utility_ema(steps: int, contribution: float, decay: float) -> tuple[fl
     state = ContinualBackpropState(  # type: ignore[call-arg]
         utilities=(jnp.zeros(1, dtype=jnp.float32),),
         ages=(jnp.zeros(1, dtype=jnp.int32),),
+        utility_update_counts=(jnp.zeros(1, dtype=jnp.int32),),
         replacement_accumulators=jnp.zeros(1, dtype=jnp.float32),
         rng_key=jr.key(0),
     )
@@ -1090,7 +1181,7 @@ class TestPublishedBiasCorrectedUtility:
         utility, age, _, _ = self._crafted_layer()
 
         idx, has_candidate = _select_replacement_index(
-            utility, age, self.MATURITY, self.DECAY
+            utility, age, age, self.MATURITY, self.DECAY
         )
         assert bool(has_candidate)
         # Published rule replaces unit 1 (lowest bias-corrected utility, 0.9).
@@ -1105,6 +1196,7 @@ class TestPublishedBiasCorrectedUtility:
         cbp_state = ContinualBackpropState(  # type: ignore[call-arg]
             utilities=(utility,),
             ages=(age,),
+            utility_update_counts=(age,),
             # Full budget so the single allowed replacement fires this step.
             replacement_accumulators=jnp.ones(1, dtype=jnp.float32),
             rng_key=jr.key(1),
