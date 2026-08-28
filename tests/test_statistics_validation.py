@@ -32,7 +32,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from scipy import stats
 
+from alberta_framework.utils import statistics as statistics_module
 from alberta_framework.utils.experiments import AggregatedResults
 from alberta_framework.utils.statistics import (
     SignificanceResult,
@@ -812,6 +814,56 @@ class TestCorrections:
         assert bonferroni == [True, False]
         assert holm_correction([0.025, 1.0], alpha=0.05) == [True, False]
 
+    def test_result_rejects_false_at_boundary_and_accepts_above_boundary(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"^significant must exactly match p_value <= alpha$",
+        ):
+            SignificanceResult(
+                test_name="boundary fixture",
+                statistic=1.0,
+                p_value=0.05,
+                significant=False,
+                alpha=0.05,
+                effect_size=0.0,
+                method_a="candidate",
+                method_b="control",
+            )
+
+        result = SignificanceResult(
+            test_name="above-boundary fixture",
+            statistic=1.0,
+            p_value=float(np.nextafter(0.05, 1.0)),
+            significant=False,
+            alpha=0.05,
+            effect_size=0.0,
+            method_a="candidate",
+            method_b="control",
+        )
+        assert result.significant is False
+
+    @pytest.mark.parametrize(
+        ("comparison", "scipy_name"),
+        [
+            (lambda a, b: ttest_comparison(a, b, alpha=0.05), "ttest_rel"),
+            (lambda a, b: mann_whitney_comparison(a, b, alpha=0.05), "mannwhitneyu"),
+            (lambda a, b: wilcoxon_comparison(a, b, alpha=0.05), "wilcoxon"),
+        ],
+    )
+    def test_raw_comparisons_include_exact_decision_boundary(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        comparison: Any,
+        scipy_name: str,
+    ) -> None:
+        monkeypatch.setattr(stats, scipy_name, lambda *args, **kwargs: (1.0, 0.05))
+
+        result = comparison([1.0, 3.0, 6.0], [0.0, 2.0, 4.0])
+
+        assert result.p_value == 0.05
+        assert result.alpha == 0.05
+        assert result.significant is True
+
     def test_bonferroni_empty_p_values(self) -> None:
         significant, corrected_alpha = bonferroni_correction([], alpha=0.05)
         assert significant == []
@@ -1016,6 +1068,52 @@ class TestPairwiseComparisons:
         expected, _ = bonferroni_correction(p_values, alpha=0.05)
         assert [r.significant for r in comps.values()] == expected
         assert all("(bonferroni)" in r.test_name for r in comps.values())
+
+    @pytest.mark.parametrize("correction", ["bonferroni", "holm"])
+    def test_pairwise_includes_exact_corrected_boundary(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        correction: str,
+    ) -> None:
+        p_values = iter([0.05 / 3.0, 0.5, 0.5])
+
+        def boundary_result(
+            values_a: np.ndarray,
+            values_b: np.ndarray,
+            *,
+            paired: bool,
+            alpha: float,
+            method_a: str,
+            method_b: str,
+        ) -> SignificanceResult:
+            del values_a, values_b, paired
+            p_value = next(p_values)
+            return SignificanceResult(
+                test_name="paired t-test",
+                statistic=1.0,
+                p_value=p_value,
+                significant=p_value <= alpha,
+                alpha=alpha,
+                effect_size=0.0,
+                method_a=method_a,
+                method_b=method_b,
+            )
+
+        monkeypatch.setattr(statistics_module, "ttest_comparison", boundary_result)
+
+        comparisons = pairwise_comparisons(
+            self._results(),
+            test="ttest",
+            correction=correction,
+            alpha=0.05,
+            window=10,
+        )
+
+        first = comparisons[("good", "mid")]
+        assert first.p_value == 0.05 / 3.0
+        assert first.alpha == 0.05 / 3.0
+        assert first.significant is True
+        assert [result.significant for result in comparisons.values()] == [True, False, False]
 
     def test_fewer_than_two_methods_returns_empty(self) -> None:
         assert pairwise_comparisons({"only": _make_aggregated("only", 0.1, seed=4)}) == {}
