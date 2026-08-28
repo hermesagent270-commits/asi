@@ -514,6 +514,71 @@ def test_completed_life_records_the_final_full_switching_segment() -> None:
     assert metrics.latest_completed_segment_reward == (0.0, 2.0)
 
 
+def test_recovered_terminal_outcome_records_the_final_full_switching_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent_config = PrototypeAgentConfig(
+        oak=OaKConfig(
+            stomp=STOMPConfig(
+                subtask_specs=(),
+                observation_dim=2,
+                n_primitive_actions=2,
+                base_step_size=0.05,
+                epsilon_base=0.25,
+            )
+        )
+    )
+    runner = build_prototype_switching_life(
+        agent_config=agent_config,
+        environment_config=SwitchingTwoStateConfig(phase_length=2),  # type: ignore[call-arg]
+        lifecycle_id=_LIFECYCLE_ID,
+        seed=29,
+        max_accepted_events=6,
+    )
+    original_apply = PrototypeReferenceAdapter.apply_outcome
+    apply_calls = 0
+
+    def reject_terminal_once(
+        self: PrototypeReferenceAdapter,
+        state: Any,
+        transaction: Any,
+    ) -> PrototypeAdapterUpdate:
+        nonlocal apply_calls
+        apply_calls += 1
+        if apply_calls == 6:
+            return PrototypeAdapterUpdate(
+                state=state,
+                next_decision=None,
+                accepted=False,
+                parameters_changed=False,
+                rejection_reason="synthetic terminal outcome rejection",
+            )
+        return original_apply(self, state, transaction)
+
+    monkeypatch.setattr(PrototypeReferenceAdapter, "apply_outcome", reject_terminal_once)
+
+    state = runner.init()
+    for _ in range(5):
+        step = runner.step(state)
+        assert step.accepted, step.rejection_reason
+        state = step.state
+    rejected = runner.step(state)
+    assert not rejected.accepted
+    assert rejected.state.pending_outcome is not None
+    assert rejected.state.accepted_events == 5
+
+    recovered = runner.recover_pending_outcome(rejected.state)
+    metrics = recovered.state.metrics
+
+    assert recovered.accepted, recovered.rejection_reason
+    assert recovered.state.phase is LifePhase.COMPLETED
+    assert metrics.current_phase == PHASE_A
+    assert metrics.current_segment_events == 2
+    assert metrics.current_segment_reward == 0.0
+    assert metrics.latest_completed_segment_reward == (0.0, 2.0)
+    assert apply_calls == 7
+
+
 def test_environment_rejects_bad_action_before_clipping_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
