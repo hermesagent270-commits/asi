@@ -401,6 +401,66 @@ def test_partial_arm_summary_marks_single_seed_stderr_undefined() -> None:
     assert prototype["reward_sum_stderr"] is None
 
 
+@pytest.mark.parametrize("environment", ENVIRONMENT_ROSTER)
+@pytest.mark.parametrize("arm", ARM_ROSTER)
+def test_single_seed_stderr_is_undefined_for_every_environment_and_arm(
+    environment: str,
+    arm: str,
+) -> None:
+    records = _summary_records()
+    retained_seed = SEED_ROSTER[0]
+    for record in records:
+        if (
+            record["environment_kind"] == environment
+            and record["arm"] == arm
+            and record["seed"] != retained_seed
+        ):
+            record["status"] = "failed"
+            record["outcome"] = None
+            record["failure"] = {
+                "stage": "step",
+                "type": "RuntimeError",
+                "message": "synthetic shard failure",
+            }
+
+    summary = scorecard._summarize_validated_run_records(
+        build_development_plan(), records
+    )
+
+    arm_summary = summary["environments"][environment]["arms"][arm]
+    assert arm_summary["completed_seed_count"] == 1
+    assert arm_summary["reward_sum_stderr"] is None
+
+
+def test_multi_seed_stderr_remains_the_sample_standard_error() -> None:
+    records = _summary_records()
+    retained_rewards = dict(zip(SEED_ROSTER[:2], (50.0, 60.0), strict=True))
+    for record in records:
+        if (
+            record["environment_kind"] == "switching_two_state"
+            and record["arm"] == "prototype"
+        ):
+            reward = retained_rewards.get(record["seed"])
+            if reward is None:
+                record["status"] = "failed"
+                record["outcome"] = None
+                record["failure"] = {
+                    "stage": "step",
+                    "type": "RuntimeError",
+                    "message": "synthetic shard failure",
+                }
+            else:
+                record["outcome"]["reward_sum"] = reward
+
+    summary = scorecard._summarize_validated_run_records(
+        build_development_plan(), records
+    )
+
+    prototype = summary["environments"]["switching_two_state"]["arms"]["prototype"]
+    assert prototype["completed_seed_count"] == 2
+    assert prototype["reward_sum_stderr"] == pytest.approx(5.0)
+
+
 @pytest.mark.skipif(
     not hasattr(os, "O_TMPFILE"),
     reason="write_new_json publishes through Linux O_TMPFILE and linkat(AT_EMPTY_PATH)",
@@ -922,6 +982,52 @@ def completed_artifact() -> dict[str, Any]:
         for spec in scorecard.iter_run_specs(plan)
     ]
     return scorecard.build_scorecard_artifact(plan, records)
+
+
+def test_shard_file_summary_keeps_single_seed_stderr_undefined(
+    completed_artifact: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan = build_development_plan()
+    target_environment = "riverswim"
+    target_arm = "random"
+    retained_seed = SEED_ROSTER[0]
+
+    def fail_build(*args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        raise RuntimeError("synthetic shard failure")
+
+    records = copy.deepcopy(completed_artifact["runs"])
+    replacements: dict[tuple[str, str, int], dict[str, Any]] = {}
+    with monkeypatch.context() as context:
+        context.setattr(scorecard, "build_scorecard_runner", fail_build)
+        for spec in scorecard.iter_run_specs(plan):
+            if (
+                spec.environment_kind == target_environment
+                and spec.arm == target_arm
+                and spec.seed != retained_seed
+            ):
+                replacement = scorecard.run_scorecard_shard(plan, spec)
+                assert replacement["status"] == "failed"
+                replacements[(spec.environment_kind, spec.arm, spec.seed)] = replacement
+
+    paths: list[Path] = []
+    for index, record in enumerate(records):
+        identity = (record["environment_kind"], record["arm"], record["seed"])
+        payload = replacements.get(identity, record)
+        path = tmp_path / f"shard-{index:03d}.json"
+        path.write_bytes(canonical_json_bytes(payload))
+        paths.append(path)
+
+    artifact = scorecard.summarize_shard_files(paths, plan=plan)
+
+    arm_summary = artifact["summary"]["environments"][target_environment]["arms"][
+        target_arm
+    ]
+    assert arm_summary["completed_seed_count"] == 1
+    assert arm_summary["failed_seed_count"] == len(SEED_ROSTER) - 1
+    assert arm_summary["reward_sum_stderr"] is None
 
 
 def test_valid_completed_aggregate_recomputes_without_promotion(
