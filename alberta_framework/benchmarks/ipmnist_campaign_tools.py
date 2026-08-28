@@ -165,7 +165,12 @@ def _seed_measurements(
 
 
 def seed_means(root: Path, config_name: str) -> dict[int, float]:
-    """Read mean per-task accuracy by seed for one campaign arm."""
+    """Read one internally protocol-consistent arm's means by seed.
+
+    This convenience view intentionally omits protocol identity. Callers that
+    compare arms must use :func:`build_frontier`, which binds both arms to the
+    same phase-specific protocol signature before computing a delta.
+    """
     means, _ = _seed_measurements(root, config_name)
     return means
 
@@ -179,7 +184,7 @@ def build_frontier(
     threshold: float = DEFAULT_THRESHOLD,
     created_unix: float | None = None,
 ) -> dict[str, Any]:
-    """Build a paired-seed development frontier without mixing seed sets."""
+    """Build a paired-seed frontier without mixing seed sets or protocols."""
     if screen_dir.resolve() == confirm_dir.resolve():
         raise ValueError("screen_dir and confirm_dir must resolve to distinct paths")
     base = _safe_identifier(base, name="base")
