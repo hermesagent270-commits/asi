@@ -1298,6 +1298,68 @@ class TestSummariesAndComparison:
 
         assert comparison["upgd_w_beats_adamw"] is True
 
+    def test_cross_learner_comparison_is_omitted_for_partially_overlapping_schedules(
+        self,
+    ):
+        comparison = build_comparison(
+            {
+                "upgd_w": {"average_online_accuracy_mean": 0.9, "seeds": [0]},
+                "adamw": {"average_online_accuracy_mean": 0.1, "seeds": [0, 1]},
+            }
+        )
+
+        assert "upgd_w_beats_adamw" not in comparison
+
+    @pytest.mark.parametrize(
+        ("upgd_accuracy", "adamw_accuracy"),
+        ((0.1, 0.9), (0.5, 0.5)),
+    )
+    def test_cross_learner_comparison_retains_false_for_matched_nonwins(
+        self,
+        upgd_accuracy: float,
+        adamw_accuracy: float,
+    ):
+        comparison = build_comparison(
+            {
+                "upgd_w": {
+                    "average_online_accuracy_mean": upgd_accuracy,
+                    "seeds": [0, 1],
+                },
+                "adamw": {
+                    "average_online_accuracy_mean": adamw_accuracy,
+                    "seeds": [0, 1],
+                },
+            }
+        )
+
+        assert comparison["upgd_w_beats_adamw"] is False
+
+    def test_partial_merge_artifact_omits_unpaired_cross_learner_winner(
+        self,
+        tmp_path: Path,
+    ):
+        data_x, data_y = _synthetic_dataset(11, N_TRAIN, TINY.input_dim, TINY.n_classes)
+        upgd = run_ipmnist(data_x, data_y, "upgd_w", seeds=(0,), config=TINY)
+        adamw = run_ipmnist(data_x, data_y, "adamw", seeds=(1,), config=TINY)
+        paths = [tmp_path / "upgd.json", tmp_path / "adamw.json"]
+        for path, result in zip(paths, (upgd, adamw), strict=True):
+            path.write_text(json.dumps(partial_payload(result)), encoding="utf-8")
+
+        merged = merge_partial_results(paths)
+        artifact = build_artifact(
+            merged,
+            TINY,
+            tmp_path / "cache",
+            partial_paths=paths,
+        )
+
+        assert artifact["study_design"]["exact_seed_ids_by_learner"] == {
+            "adamw": [1],
+            "upgd_w": [0],
+        }
+        assert artifact["study_design"]["all_learners_share_seed_ids"] is False
+        assert "upgd_w_beats_adamw" not in artifact["comparison"]
+
     def test_summary_and_comparison_flag_logic(self):
         data_x, data_y = _synthetic_dataset(4, N_TRAIN, TINY.input_dim, TINY.n_classes)
         result = run_ipmnist(data_x, data_y, "upgd_w", seeds=(0, 1), config=TINY)

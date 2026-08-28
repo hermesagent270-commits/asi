@@ -1234,7 +1234,8 @@ def build_comparison(summaries: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Compare run summaries against the published reference numbers.
 
     Any absolute gap above :data:`REPRODUCTION_GAP_THRESHOLD` is flagged as a
-    reproduction gap to investigate -- never silently absorbed.
+    reproduction gap to investigate -- never silently absorbed.  The
+    cross-learner winner is emitted only for exactly paired seed schedules.
     """
     reference = PAPER_REFERENCE["approximate_average_online_accuracy"]
     comparison: dict[str, Any] = {
