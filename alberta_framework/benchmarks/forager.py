@@ -3911,7 +3911,11 @@ def summarize_forager_runs(
     bootstrap_resamples: int = 10_000,
     bootstrap_seed: int = 0,
 ) -> ForagerBenchmarkSummary:
-    """Summarize same-agent runs without mixing privileged controls."""
+    """Summarize runs with identical method metadata and privilege level.
+
+    Per-run identity, raw traces, and timing telemetry are excluded from the
+    method signature; arbitrary custom-policy configuration remains bound.
+    """
     supported_metrics = {
         "mean_reward",
         "final_window_mean_reward",

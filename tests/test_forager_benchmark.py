@@ -31,6 +31,7 @@ from alberta_framework.benchmarks.forager import (
     RandomForagerAgent,
     _agent_key,
     bootstrap_mean_interval,
+    compare_forager_agents,
     foragax_install_tree_sha256,
     forager_metric_contract,
     paper_baselines,
@@ -1187,6 +1188,93 @@ def test_summary_and_paired_comparison_fail_closed() -> None:
     )
     with pytest.raises(ValueError, match="finite JSON"):
         summarize_forager_runs([malformed_provenance])
+
+
+@pytest.mark.parametrize(
+    ("left_metadata", "right_metadata"),
+    [
+        ({"epsilon": 0.1}, {"epsilon": 0.9}),
+        (
+            {"hyperparameters": {"learning_rate": 0.01}},
+            {"hyperparameters": {"learning_rate": 0.99}},
+        ),
+        ({"update_semantics": "v1"}, {"update_semantics": "v2"}),
+        ({"recurrent_features": 8}, {"recurrent_features": 16}),
+    ],
+)
+def test_summary_binds_every_custom_method_metadata_key(
+    left_metadata: dict[str, Any],
+    right_metadata: dict[str, Any],
+) -> None:
+    runs = [
+        dataclasses.replace(
+            _result("custom", 0, 1.0),
+            agent_metadata=left_metadata,
+        ),
+        dataclasses.replace(
+            _result("custom", 1, 2.0),
+            agent_metadata=right_metadata,
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="configuration"):
+        summarize_forager_runs(runs)
+
+
+def test_summary_ignores_runner_timing_but_keeps_stable_runner_identity() -> None:
+    runs = []
+    for seed, duration in ((0, 1.0), (1, 99.0)):
+        base = _result("custom", seed, float(seed + 1))
+        runs.append(
+            dataclasses.replace(
+                base,
+                agent_metadata={
+                    "config": {"kind": "custom"},
+                    "runner": {
+                        "kind": "host_loop",
+                        "batch_mode": None,
+                        "rounding_contract": None,
+                        "overall_duration_s": duration,
+                        "execution_duration_s": duration / 2,
+                    },
+                },
+            )
+        )
+
+    summary = summarize_forager_runs(runs, bootstrap_resamples=100)
+
+    assert summary.seeds == (0, 1)
+    assert summary.mean == pytest.approx(1.5)
+
+
+def test_compare_forager_agents_rejects_live_custom_metadata_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ForagerEnvConfig, "make", _fake_make)
+
+    class SeedConfiguredPolicy(_TrackingPolicy):
+        def __init__(self, seed: int) -> None:
+            super().__init__()
+            self.seed = seed
+
+        def metadata(self) -> Mapping[str, Any]:
+            return {
+                "name": self.name,
+                "privileged": self.privileged,
+                "hyperparameters": {"learning_rate": 0.01 + self.seed},
+            }
+
+    with pytest.raises(ValueError, match="configuration"):
+        compare_forager_agents(
+            {"custom": SeedConfiguredPolicy},
+            config=ForagerBenchmarkConfig(
+                steps=2,
+                record_every=1,
+                final_window=1,
+            ),
+            seeds=(0, 1),
+            bootstrap_resamples=100,
+        )
 
 
 def test_paper_protocols_and_reference_labels() -> None:
