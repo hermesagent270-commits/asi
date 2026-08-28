@@ -308,6 +308,10 @@ class ContinualBackpropState:
         ages: Per-hidden-unit age (number of updates since
             initialization or last replacement). Same shape as
             ``utilities``.
+        utility_update_counts: Per-hidden-unit count of finite samples
+            incorporated into the utility EMA.  This is distinct from age:
+            a non-finite contribution holds the EMA and must therefore also
+            hold its bias-correction clock without delaying maturity.
         replacement_accumulators: One scalar per hidden layer that
             accumulates the (fractional) number of replacements
             scheduled by ``replacement_rate * num_mature_units`` each
@@ -323,6 +327,7 @@ class ContinualBackpropState:
 
     utilities: tuple[Float[Array, " hidden_dim"], ...]
     ages: tuple[Int[Array, " hidden_dim"], ...]
+    utility_update_counts: tuple[Int[Array, " hidden_dim"], ...]
     replacement_accumulators: Float[Array, " n_layers"]
     rng_key: Array
 
@@ -372,10 +377,14 @@ def init_cbp_state(
     ages = tuple(
         jnp.zeros(h, dtype=jnp.int32) for h in hidden_sizes
     )
+    utility_update_counts = tuple(
+        jnp.zeros(h, dtype=jnp.int32) for h in hidden_sizes
+    )
     accumulators = jnp.zeros(n_layers, dtype=jnp.float32)
     return ContinualBackpropState(  # type: ignore[call-arg]
         utilities=utilities,
         ages=ages,
+        utility_update_counts=utility_update_counts,
         replacement_accumulators=accumulators,
         rng_key=key,
     )
@@ -457,6 +466,7 @@ def update_utility(
     decay = jnp.asarray(decay_rate, dtype=jnp.float32)
     new_utilities: list[Array] = []
     new_ages: list[Array] = []
+    new_utility_update_counts: list[Array] = []
     for i in range(n_layers):
         contribution = jnp.abs(activations[i] * activation_grads[i])
         # Inf activation * a silent gradient is 0*inf = NaN. Hold the
@@ -468,26 +478,37 @@ def update_utility(
             jnp.zeros_like(cbp_state.utilities[i]),
             decay * cbp_state.utilities[i],
         )
-        u_new = decayed + (1.0 - decay) * contribution
-        u_new = jnp.where(contribution_finite, u_new, cbp_state.utilities[i])
+        candidate_utility = decayed + (1.0 - decay) * contribution
+        utility_update_applied = contribution_finite & jnp.isfinite(candidate_utility)
+        u_new = jnp.where(
+            utility_update_applied, candidate_utility, cbp_state.utilities[i]
+        )
         new_utilities.append(u_new)
         new_ages.append(cbp_state.ages[i] + 1)
+        new_utility_update_counts.append(
+            cbp_state.utility_update_counts[i] + utility_update_applied.astype(jnp.int32)
+        )
 
     return cbp_state.replace(  # type: ignore[attr-defined]
         utilities=tuple(new_utilities),
         ages=tuple(new_ages),
+        utility_update_counts=tuple(new_utility_update_counts),
     )
 
 
 def _select_replacement_index(
     utility: Array,
     age: Array,
+    utility_update_count: Array,
     maturity_threshold: int,
+    decay_rate: float,
 ) -> tuple[Array, Array]:
-    """Pick the index of the lowest-utility mature unit, if any.
+    """Pick the mature unit with the lowest bias-corrected utility, if any.
 
     A unit is "mature" iff ``age >= maturity_threshold``. Among mature
-    units we pick the one with the smallest utility. If no mature unit
+    units we pick the one with the smallest finite-sample-debiased utility.
+    The debias clock counts only samples incorporated into the EMA and is
+    deliberately distinct from maturity age. If no mature unit
     exists, ``selected`` is ``-1`` (sentinel) and ``has_candidate`` is
     ``False``.
 
@@ -497,15 +518,23 @@ def _select_replacement_index(
     Args:
         utility: Per-unit utility array, shape ``(num_units,)``.
         age: Per-unit age array (same shape).
+        utility_update_count: Per-unit number of samples incorporated into
+            the utility EMA (same shape).
         maturity_threshold: Minimum age for eligibility.
+        decay_rate: Utility EMA decay used for the warm-up correction.
 
     Returns:
         Tuple ``(index, has_candidate)`` where ``index`` is the chosen
         unit (or ``-1``) and ``has_candidate`` is a boolean scalar.
     """
     mature = age >= jnp.asarray(maturity_threshold, dtype=age.dtype)
-    eligible = mature & jnp.isfinite(utility)
-    masked_utility = jnp.where(eligible, utility, jnp.inf)
+    decay = jnp.asarray(decay_rate, dtype=utility.dtype)
+    count = utility_update_count.astype(utility.dtype)
+    correction = 1.0 - decay**count
+    safe_correction = jnp.where(correction > 0.0, correction, jnp.ones_like(correction))
+    corrected_utility = utility / safe_correction
+    eligible = mature & (correction > 0.0) & jnp.isfinite(corrected_utility)
+    masked_utility = jnp.where(eligible, corrected_utility, jnp.inf)
     has_candidate = jnp.any(eligible)
     idx = jnp.argmin(masked_utility)
     selected = jnp.where(has_candidate, idx, jnp.int32(-1))
@@ -602,18 +631,24 @@ def _replace_one_unit(
     # ---- Reset CBP utility & age for the replaced unit. ----
     util_layer = cbp_state.utilities[layer_idx]
     age_layer = cbp_state.ages[layer_idx]
+    count_layer = cbp_state.utility_update_counts[layer_idx]
     new_util_val = jnp.where(has_candidate, jnp.float32(0.0), util_layer[unit_idx])
     new_age_val = jnp.where(has_candidate, jnp.int32(0), age_layer[unit_idx])
+    new_count_val = jnp.where(has_candidate, jnp.int32(0), count_layer[unit_idx])
     new_util_layer = util_layer.at[unit_idx].set(new_util_val)
     new_age_layer = age_layer.at[unit_idx].set(new_age_val)
+    new_count_layer = count_layer.at[unit_idx].set(new_count_val)
 
     new_utilities = list(cbp_state.utilities)
     new_ages = list(cbp_state.ages)
+    new_utility_update_counts = list(cbp_state.utility_update_counts)
     new_utilities[layer_idx] = new_util_layer
     new_ages[layer_idx] = new_age_layer
+    new_utility_update_counts[layer_idx] = new_count_layer
     new_cbp_state = cbp_state.replace(  # type: ignore[attr-defined]
         utilities=tuple(new_utilities),
         ages=tuple(new_ages),
+        utility_update_counts=tuple(new_utility_update_counts),
     )
 
     return new_mlp_state, new_cbp_state
@@ -686,7 +721,9 @@ def replace_units_with_flags(
         unit_idx, has_candidate = _select_replacement_index(
             new_cbp_state.utilities[layer_idx],
             new_cbp_state.ages[layer_idx],
+            new_cbp_state.utility_update_counts[layer_idx],
             config.maturity_threshold,
+            config.decay_rate,
         )
         # Only replace if we both budgeted for it AND found a mature unit.
         gated = jnp.logical_and(do_replace, has_candidate)
