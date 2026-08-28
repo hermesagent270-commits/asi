@@ -510,8 +510,41 @@ class TestRiverSwim:
         assert uniform < optimal
         assert always_left < optimal
 
-    def test_stationary_gain_preserves_tiny_categorical_transition_ratios(self):
+    @pytest.mark.parametrize(
+        ("n_states", "p_right_up", "p_right_down", "expected_top_mass"),
+        [
+            (2, 1.0e-7, 2.0e-7, 1.0 / 3.0),
+            (2, 2.0e-7, 1.0e-7, 2.0 / 3.0),
+            (2, 1.0e-6, 2.0e-6, 1.0 / 3.0),
+            (3, 1.0e-7, 2.0e-7, 1.0 / 7.0),
+        ],
+    )
+    def test_stationary_gain_preserves_tiny_categorical_transition_ratios(
+        self,
+        n_states: int,
+        p_right_up: float,
+        p_right_down: float,
+        expected_top_mass: float,
+    ) -> None:
         """Stationary mass follows the row-normalized categorical kernel."""
+        env = RiverSwimMDP(
+            RiverSwimConfig(
+                n_states=n_states,
+                p_right_up=p_right_up,
+                p_right_down=p_right_down,
+                reward_left=0.0,
+                reward_right=1.0,
+            )
+        )
+
+        assert env.policy_average_reward([RIGHT_ACTION] * n_states) == pytest.approx(
+            expected_top_mass,
+            rel=1.0e-7,
+            abs=1.0e-12,
+        )
+
+    def test_tiny_transition_ratios_reach_public_optimal_and_uniform_helpers(self) -> None:
+        """The public baseline helpers share the precision-stable solver."""
         env = RiverSwimMDP(
             RiverSwimConfig(
                 n_states=2,
@@ -521,13 +554,25 @@ class TestRiverSwim:
                 reward_right=1.0,
             )
         )
-        kernel = env.transition_tensor[RIGHT_ACTION].astype(np.float64)
-        up = kernel[0, 1] / kernel[0].sum()
-        down = kernel[1, 0] / kernel[1].sum()
-        expected_top_state_mass = up / (up + down)
+        transitions = env.transition_tensor.astype(np.float64)
+        right = transitions[RIGHT_ACTION]
+        right_up = right[0, 1] / right[0].sum()
+        right_down = right[1, 0] / right[1].sum()
+        expected_optimal = right_up / (right_up + right_down)
 
-        assert env.policy_average_reward([RIGHT_ACTION, RIGHT_ACTION]) == pytest.approx(
-            expected_top_state_mass,
+        uniform = transitions.mean(axis=0)
+        uniform_up = uniform[0, 1] / uniform[0].sum()
+        uniform_down = uniform[1, 0] / uniform[1].sum()
+        expected_uniform = 0.5 * uniform_up / (uniform_up + uniform_down)
+
+        assert env.optimal_policy() == (RIGHT_ACTION, RIGHT_ACTION)
+        assert env.optimal_average_reward() == pytest.approx(
+            expected_optimal,
+            rel=1.0e-12,
+            abs=1.0e-12,
+        )
+        assert env.uniform_random_average_reward() == pytest.approx(
+            expected_uniform,
             rel=1.0e-12,
             abs=1.0e-12,
         )
