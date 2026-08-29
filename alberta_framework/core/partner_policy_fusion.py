@@ -28,7 +28,7 @@ import hashlib
 import json
 import math
 import operator
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from numbers import Real
 from typing import Any, SupportsIndex, cast
 
@@ -156,17 +156,21 @@ def _strict_float32(
     return normalized
 
 
-def _json_container_children(node: object) -> tuple[object, ...] | None:
+def _json_container_children(node: object) -> Iterable[object] | None:
     """Return JSON-container children, or None for a scalar leaf.
 
-    Uses :mod:`collections.abc` checks aligned with ``json.dumps`` so that
-    dict/list/tuple subclasses are treated as containers, not scalars.
+    Use built-in lazy views and iterators so the shared walker can enforce its
+    node cap before traversing or copying an entire hostile container. Calling
+    the concrete built-in methods also avoids subclass iterator hooks while
+    covering the dict/list/tuple subclasses accepted by ``json.dumps``.
     """
 
-    if isinstance(node, Mapping):
-        return tuple(cast(Mapping[str, Any], node).values())
-    if isinstance(node, Sequence) and not isinstance(node, (str, bytes)):
-        return tuple(cast(Sequence[object], node))
+    if isinstance(node, dict):
+        return dict.values(node)
+    if isinstance(node, list):
+        return list.__iter__(node)
+    if isinstance(node, tuple):
+        return tuple.__iter__(node)
     return None
 
 

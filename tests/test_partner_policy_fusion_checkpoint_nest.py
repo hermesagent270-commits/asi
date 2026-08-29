@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 
 import pytest
 
 from alberta_framework.core.partner_policy_fusion import (
     _CHECKPOINT_JSON_MAX_DEPTH,
+    _CHECKPOINT_JSON_MAX_NODES,
     MECHANISM_STATUS,
     PARTNER_POLICY_FUSION_CHECKPOINT_SCHEMA,
     PartnerPolicyFusion,
@@ -82,20 +84,33 @@ def test_origin_recursion_class_rejects_before_dumps(
     assert time.perf_counter() - started < 0.25
 
 
-class _DictSubclass(dict):
+class _DictSubclass(dict[str, object]):
     pass
 
 
-class _ListSubclass(list):
+class _ListSubclass(list[int]):
     pass
 
 
-class _TupleSubclass(tuple):
+class _TupleSubclass(tuple[int, ...]):
     pass
 
 
-class _DictSubclassDict(dict):
+class _DictSubclassDict(dict[str, object]):
     """Dict subclass whose values are also a dict subclass."""
+
+
+class _CountingListSubclass(list[int]):
+    iterated: int
+
+    def __init__(self, values: list[int]) -> None:
+        super().__init__(values)
+        self.iterated = 0
+
+    def __iter__(self) -> Iterator[int]:
+        for value in super().__iter__():
+            self.iterated += 1
+            yield value
 
 
 def test_dict_subclass_bypasses_node_bound() -> None:
@@ -108,6 +123,13 @@ def test_list_subclass_bypasses_node_bound() -> None:
     payload = _ListSubclass([0] * 5000)
     with pytest.raises(ValueError, match="resource"):
         _canonical_json_bytes(payload)
+
+
+def test_oversized_subclass_does_not_eagerly_iterate_past_node_bound() -> None:
+    payload = _CountingListSubclass([0] * (_CHECKPOINT_JSON_MAX_NODES * 3))
+    with pytest.raises(ValueError, match="resource"):
+        _canonical_json_bytes(payload)
+    assert payload.iterated <= _CHECKPOINT_JSON_MAX_NODES
 
 
 def test_tuple_subclass_bypasses_node_bound() -> None:
