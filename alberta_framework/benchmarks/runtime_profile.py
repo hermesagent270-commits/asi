@@ -11,7 +11,7 @@ import dataclasses
 import hashlib
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from pathlib import PurePosixPath
 from typing import Any, Literal, cast
 
@@ -105,13 +105,20 @@ _JSON_MAX_DEPTH = 32
 _JSON_MAX_NODES = 4096
 
 
-def _json_container_children(node: object) -> tuple[object, ...] | None:
-    """Return JSON-container children, or None for a scalar leaf."""
+def _json_container_children(node: object) -> Iterable[object] | None:
+    """Return lazy JSON-container children, or None for a scalar leaf.
 
-    if isinstance(node, Mapping):
-        return tuple(cast(Mapping[str, Any], node).values())
-    if isinstance(node, Sequence) and not isinstance(node, (str, bytes)):
-        return tuple(cast(Sequence[Any], node))
+    Concrete built-in methods cover the dict/list/tuple subclasses accepted by
+    ``json.dumps`` without invoking subclass iterator hooks. Keeping traversal
+    lazy lets the shared walker stop as soon as its node cap is exceeded.
+    """
+
+    if isinstance(node, dict):
+        return dict.values(node)
+    if isinstance(node, list):
+        return list.__iter__(node)
+    if isinstance(node, tuple):
+        return tuple.__iter__(node)
     return None
 
 

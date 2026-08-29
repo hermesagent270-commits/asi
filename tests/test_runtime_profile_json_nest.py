@@ -8,34 +8,44 @@ shared 32-deep JSON ceiling before dumps.
 
 from __future__ import annotations
 
-import collections.abc
 import json
 import time
-from typing import Any
+from collections.abc import Iterator
 
 import pytest
 from test_runtime_profile import _matched_gpu_profile
 
 from alberta_framework.benchmarks.runtime_profile import (
     _JSON_MAX_DEPTH,
+    _JSON_MAX_NODES,
     _json_copy,
-    _require_bounded_json,
     validate_environment_runtime_profile,
 )
 
 pytestmark = pytest.mark.unit
 
 
-class _ListSubclass(list):
+class _ListSubclass(list[int]):
     """Subclass of list to verify ABC-based container recognition."""
 
 
-class _DictSubclass(dict):
+class _DictSubclass(dict[str, object]):
     """Subclass of dict to verify ABC-based container recognition."""
 
 
-class _TupleSubclass(tuple):
+class _TupleSubclass(tuple[int, ...]):
     """Subclass of tuple to verify ABC-based container recognition."""
+
+
+class _CountingListSubclass(list[int]):
+    def __init__(self, values: list[int]) -> None:
+        super().__init__(values)
+        self.iterated = 0
+
+    def __iter__(self) -> Iterator[int]:
+        for value in super().__iter__():
+            self.iterated += 1
+            yield value
 
 
 def _nest(depth: int) -> dict[str, object]:
@@ -76,6 +86,13 @@ def test_origin_recursion_class_rejects_before_dumps(
 def test_json_list_subclass_respects_node_limit() -> None:
     with pytest.raises(ValueError, match="resource limit"):
         _json_copy(_ListSubclass([0] * 5000), label="subclass-list")
+
+
+def test_json_subclass_stops_without_eagerly_copying_all_children() -> None:
+    payload = _CountingListSubclass([0] * (_JSON_MAX_NODES * 3))
+    with pytest.raises(ValueError, match="resource limit"):
+        _json_copy(payload, label="counting-subclass-list")
+    assert payload.iterated <= _JSON_MAX_NODES
 
 
 def test_json_dict_subclass_respects_node_limit() -> None:
