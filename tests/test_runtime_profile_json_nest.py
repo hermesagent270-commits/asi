@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from typing import cast
 
 import pytest
 from test_runtime_profile import _matched_gpu_profile
@@ -18,6 +19,7 @@ from test_runtime_profile import _matched_gpu_profile
 from alberta_framework.benchmarks.runtime_profile import (
     _JSON_MAX_DEPTH,
     _JSON_MAX_NODES,
+    _json_container_children,
     _json_copy,
     validate_environment_runtime_profile,
 )
@@ -35,17 +37,6 @@ class _DictSubclass(dict[str, object]):
 
 class _TupleSubclass(tuple[int, ...]):
     """Subclass of tuple to verify ABC-based container recognition."""
-
-
-class _CountingListSubclass(list[int]):
-    def __init__(self, values: list[int]) -> None:
-        super().__init__(values)
-        self.iterated = 0
-
-    def __iter__(self) -> Iterator[int]:
-        for value in super().__iter__():
-            self.iterated += 1
-            yield value
 
 
 def _nest(depth: int) -> dict[str, object]:
@@ -83,32 +74,89 @@ def test_origin_recursion_class_rejects_before_dumps(
     assert time.perf_counter() - started < 0.25
 
 
-def test_json_list_subclass_respects_node_limit() -> None:
+class _HiddenValuesDict(dict[str, object]):
+    """``json.dumps`` walks ``items()``; a ``values()`` reader sees nothing."""
+
+    def values(self) -> Iterator[object]:  # type: ignore[override]
+        return iter(())
+
+
+class _HiddenItemsDict(dict[str, object]):
+    """``json.dumps`` walks ``items()``, which yields content absent from storage."""
+
+    def items(self) -> list[tuple[str, object]]:  # type: ignore[override]
+        return [("x", _nest(16_000))]
+
+
+class _HiddenIterList(list[object]):
+    """``json.dumps`` walks ``__iter__``, which yields content absent from storage."""
+
+    def __iter__(self) -> Iterator[object]:
+        yield _nest(16_000)
+
+
+def _fail_dumps(*_args: object, **_kwargs: object) -> str:
+    raise AssertionError("json.dumps ran before the runtime-profile container gate")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _ListSubclass([0] * (_JSON_MAX_NODES + 1)),
+        _DictSubclass({str(i): i for i in range(_JSON_MAX_NODES + 1)}),
+        _TupleSubclass(tuple([0] * (_JSON_MAX_NODES + 1))),
+        _HiddenValuesDict({str(i): i for i in range(_JSON_MAX_NODES + 1)}),
+        _HiddenItemsDict({"real": 1}),
+        _HiddenIterList(),
+        {"key": [(_ListSubclass([1]),)]},
+    ],
+    ids=[
+        "list-subclass",
+        "dict-subclass",
+        "tuple-subclass",
+        "dict-hidden-values",
+        "dict-hidden-items",
+        "list-hidden-iter",
+        "nested-subclass",
+    ],
+)
+def test_json_container_subclass_rejects_before_dumps(
+    monkeypatch: pytest.MonkeyPatch, payload: object
+) -> None:
+    monkeypatch.setattr(json, "dumps", _fail_dumps)
+    with pytest.raises(ValueError, match="subclass-gate contains a JSON container subclass"):
+        _json_copy(payload, label="subclass-gate")
+
+
+def test_runtime_profile_subclass_rejects_before_dumps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(json, "dumps", _fail_dumps)
+    hidden = _HiddenValuesDict({str(i): i for i in range(_JSON_MAX_NODES + 1)})
+    with pytest.raises(ValueError, match="container subclass"):
+        validate_environment_runtime_profile(hidden)
+
+
+def test_exact_containers_reject_by_node_limit() -> None:
     with pytest.raises(ValueError, match="resource limit"):
-        _json_copy(_ListSubclass([0] * 5000), label="subclass-list")
-
-
-def test_json_subclass_stops_without_eagerly_copying_all_children() -> None:
-    payload = _CountingListSubclass([0] * (_JSON_MAX_NODES * 3))
+        _json_copy([0] * (_JSON_MAX_NODES + 1), label="exact-list")
     with pytest.raises(ValueError, match="resource limit"):
-        _json_copy(payload, label="counting-subclass-list")
-    assert payload.iterated <= _JSON_MAX_NODES
-
-
-def test_json_dict_subclass_respects_node_limit() -> None:
-    big = _DictSubclass({str(i): i for i in range(5000)})
+        _json_copy({str(i): i for i in range(_JSON_MAX_NODES + 1)}, label="exact-dict")
     with pytest.raises(ValueError, match="resource limit"):
-        _json_copy(big, label="subclass-dict")
+        _json_copy(tuple([0] * (_JSON_MAX_NODES + 1)), label="exact-tuple")
 
 
-def test_json_tuple_subclass_respects_node_limit() -> None:
-    with pytest.raises(ValueError, match="resource limit"):
-        _json_copy(_TupleSubclass(range(5000)), label="subclass-tuple")
-
-
-def test_json_list_subclass_nested_in_mapping_respects_node_limit() -> None:
-    with pytest.raises(ValueError, match="resource limit"):
-        _json_copy({"key": _ListSubclass([0] * 5000)}, label="nested-subclass")
+def test_exact_container_children_are_lazy_views() -> None:
+    exact_list = [1, 2]
+    assert _json_container_children(exact_list) is exact_list
+    exact_tuple = (1, 2)
+    assert _json_container_children(exact_tuple) is exact_tuple
+    exact_dict = {"a": 1}
+    view = _json_container_children(exact_dict)
+    assert type(view) is type({}.values())
+    assert list(cast(Iterable[object], view)) == [1]
+    for leaf in ("text", b"bytes", 1, 1.5, None, True):
+        assert _json_container_children(leaf) is None
 
 
 def test_json_str_still_treated_as_leaf_not_container() -> None:
