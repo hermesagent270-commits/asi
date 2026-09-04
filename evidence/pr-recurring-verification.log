@@ -1,0 +1,21 @@
+# Verification log — fix/recurring-artifact-unrecovered-gate
+head commit: 1d27a8f36fdd27c42c8d99a03a57ac3e1ae8011e (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## New test at base (frozen-schedule fixture, every retained seed without recovery)
+/tmp/asi-fix-recurring/alberta_framework/evaluation/recurring_feature_artifact.py:404: ValueError: paired bootstrap values must be finite
+=========================== short test summary info ============================
+FAILED tests/test_recurring_feature_artifact.py::test_rejecting_gate_with_unrecovered_evidence_still_builds_and_validates
+1 failed, 18 deselected in 11.18s
+
+## Focused tests at head
+2 passed, 18 deselected in 10.89s
+
+## Six tests/test_recurring_feature_*.py suites + mypy at head
+..............................................                           [100%]
+190 passed in 28.40s
+mypy: Success: no issues found in 224 source files
+
+## Registry on clean origin/main before the edit
+alberta-evidence-status: overall invalid; recurring_pair_features invalid; scale_robust_pair_features invalid; ftl_world_model_decision_fidelity invalid; recurring_multiagent_coadaptation invalid; continual_intelligence_amplification invalid
+ruff check . -> All checks passed!
