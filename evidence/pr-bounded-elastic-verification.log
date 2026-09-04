@@ -1,0 +1,20 @@
+# Verification log — fix/bounded-elastic-canonical-compare
+head commit: ff5864095482b9c785634d4b68a11b3919284785 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## New test at base
+/tmp/asi-fix-belastic/tests/test_bounded_elastic_matched_runner.py:271: Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED tests/test_bounded_elastic_matched_runner.py::test_validator_rejects_type_punned_forgeries_that_compare_equal
+1 failed, 34 deselected in 4.92s
+
+## tests/test_bounded_elastic_matched_runner.py at head
+...................................                                      [100%]
+35 passed in 11.92s
+
+## tests/test_bounded_elastic_ipmnist.py at head
+10 passed in 7.39s
+
+## Hygiene at head
+ruff check . -> All checks passed!
+mypy -> Success: no issues found in 224 source files
