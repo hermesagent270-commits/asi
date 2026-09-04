@@ -1,0 +1,44 @@
+# Verification log — fix/predict-applies-normalizer
+head commit: 4f2940b0b49bf023f5e7f8a0f0707fe952b4a547 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Base reproduction (origin/main c9aba7b5, 1000 LMS steps on N(100,1) features)
+LinearLearner target=+0.046 update().prediction=+0.046 predict(raw)=+49.430 predict(normalized)=+0.046
+MLPLearner    target=+0.046 update().prediction=+0.180 predict(raw)=+0.550  predict(normalized)=+0.181
+
+## New tests against base learners.py (tests from this branch)
+$ pytest tests/test_learners.py::TestLinearLearnerNormalizedPredict tests/test_mlp_learner.py::TestNormalizedMLPPredict -q -o addopts="" -rf --tb=line
+     DESIRED: array([0.449188], dtype=float32) 
+    Original dtypes: float32, float32.
+/root/asi/.venv/lib/python3.12/site-packages/chex/_src/asserts_internal.py:197: AssertionError: [Chex] Assertion assert_trees_all_close failed:  Trees (arrays) 0 and 1 differ:
+=========================== short test summary info ============================
+FAILED tests/test_learners.py::TestLinearLearnerNormalizedPredict::test_predict_reproduces_the_update_prediction[welford]
+FAILED tests/test_learners.py::TestLinearLearnerNormalizedPredict::test_predict_reproduces_the_update_prediction[ema]
+FAILED tests/test_mlp_learner.py::TestNormalizedMLPPredict::test_predict_reproduces_the_update_prediction
+3 failed, 1 passed in 56.82s
+
+## New tests at head 4f2940b0
+$ pytest tests/test_learners.py::TestLinearLearnerNormalizedPredict tests/test_mlp_learner.py::TestNormalizedMLPPredict -q -o addopts=""
+....                                                                     [100%]
+4 passed in 51.67s
+
+## Affected suites at head 4f2940b0
+$ pytest tests/test_learners.py tests/test_mlp_learner.py tests/test_single_step_api.py tests/test_production_steps.py tests/test_multi_head_learner.py tests/test_horde.py tests/test_gymnasium_streams.py -q -o addopts="" -x
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+........................................................................ [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 55%]
+........................................................................ [ 64%]
+........................................................................ [ 73%]
+........................................................................ [ 82%]
+........................................................................ [ 91%]
+................................................................         [100%]
+exit 0
+
+## Hygiene at head 4f2940b0
+=== ruff ===
+All checks passed!
+=== mypy ===
+Success: no issues found in 224 source files
