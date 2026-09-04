@@ -1,0 +1,26 @@
+# Verification log — fix/intra-option-trace-goal-step
+head commit: f0d1b357265c18f477967d55b28802861f1064ec (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Unit probe at base
+terminated=False td=1.00 trace=[[0.8999999761581421, 0.0], [0.0, 1.0]] q[a0]=[0.44999998807907104, 0.0] q[a1]=[0.0, 0.5]
+terminated=True  td=1.00 trace=[[0.0, 0.0], [0.0, 1.0]] q[a0]=[0.0, 0.0] q[a1]=[0.0, 0.5]
+
+## New public-path test at base
+E   Mismatched elements: 1 / 4 (25%)
+E   Mismatch at index:
+E    [1, 1]: 0.0 (ACTUAL), 0.1875 (DESIRED)
+E   Max absolute difference among violations: 0.1875
+1 failed, 5 deselected in 2.77s
+
+## Unit probe at head
+terminated=False td=1.00 trace=[[0.8999999761581421, 0.0], [0.0, 1.0]] q[a0]=[0.44999998807907104, 0.0] q[a1]=[0.0, 0.5]
+terminated=True  td=1.00 trace=[[0.8999999761581421, 0.0], [0.0, 1.0]] q[a0]=[0.44999998807907104, 0.0] q[a1]=[0.0, 0.5]
+
+## tests/test_stomp_execution_boundaries.py at head
+6 passed in 8.91s
+
+## Options/STOMP/OaK/Step10-11/float32 suites at head
+757 passed in 256.88s (0:04:16)
+mypy -> Success: no issues found in 224 source files
+ruff check . -> All checks passed!
