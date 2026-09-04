@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from typing import cast
 
 import pytest
 
@@ -22,6 +23,7 @@ from alberta_framework.core.partner_policy_fusion import (
     PartnerPolicyFusion,
     PartnerPolicyFusionConfig,
     _canonical_json_bytes,
+    _json_container_children,
 )
 
 pytestmark = pytest.mark.unit
@@ -96,46 +98,67 @@ class _TupleSubclass(tuple[int, ...]):
     pass
 
 
-class _DictSubclassDict(dict[str, object]):
-    """Dict subclass whose values are also a dict subclass."""
+class _HiddenValuesDict(dict[str, object]):
+    """``json.dumps`` walks ``items()``; a ``values()`` reader sees nothing."""
+
+    def values(self) -> Iterator[object]:  # type: ignore[override]
+        return iter(())
 
 
-class _CountingListSubclass(list[int]):
-    iterated: int
+class _HiddenItemsDict(dict[str, object]):
+    """``json.dumps`` walks ``items()``, which yields content absent from storage."""
 
-    def __init__(self, values: list[int]) -> None:
-        super().__init__(values)
-        self.iterated = 0
-
-    def __iter__(self) -> Iterator[int]:
-        for value in super().__iter__():
-            self.iterated += 1
-            yield value
+    def items(self) -> list[tuple[str, object]]:  # type: ignore[override]
+        return [("x", _nest(16_000))]
 
 
-def test_dict_subclass_bypasses_node_bound() -> None:
-    payload = _DictSubclass({str(i): i for i in range(5000)})
-    with pytest.raises(ValueError, match="resource"):
+class _HiddenIterList(list[object]):
+    """``json.dumps`` walks ``__iter__``, which yields content absent from storage."""
+
+    def __iter__(self) -> Iterator[object]:
+        yield _nest(16_000)
+
+
+def _fail_dumps(*_args: object, **_kwargs: object) -> str:
+    raise AssertionError("json.dumps ran before the checkpoint container gate")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _ListSubclass([0] * (_CHECKPOINT_JSON_MAX_NODES + 1)),
+        _DictSubclass({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)}),
+        _TupleSubclass(tuple([0] * (_CHECKPOINT_JSON_MAX_NODES + 1))),
+        _HiddenValuesDict({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)}),
+        _HiddenItemsDict({"real": 1}),
+        _HiddenIterList(),
+        {"fusion": [(_ListSubclass([1]),)]},
+    ],
+    ids=[
+        "list-subclass",
+        "dict-subclass",
+        "tuple-subclass",
+        "dict-hidden-values",
+        "dict-hidden-items",
+        "list-hidden-iter",
+        "nested-subclass",
+    ],
+)
+def test_json_container_subclass_rejects_before_dumps(
+    monkeypatch: pytest.MonkeyPatch, payload: object
+) -> None:
+    monkeypatch.setattr(json, "dumps", _fail_dumps)
+    with pytest.raises(ValueError, match="container subclass"):
         _canonical_json_bytes(payload)
 
 
-def test_list_subclass_bypasses_node_bound() -> None:
-    payload = _ListSubclass([0] * 5000)
-    with pytest.raises(ValueError, match="resource"):
-        _canonical_json_bytes(payload)
-
-
-def test_oversized_subclass_does_not_eagerly_iterate_past_node_bound() -> None:
-    payload = _CountingListSubclass([0] * (_CHECKPOINT_JSON_MAX_NODES * 3))
-    with pytest.raises(ValueError, match="resource"):
-        _canonical_json_bytes(payload)
-    assert payload.iterated <= _CHECKPOINT_JSON_MAX_NODES
-
-
-def test_tuple_subclass_bypasses_node_bound() -> None:
-    payload = _TupleSubclass(tuple(range(5000)))
-    with pytest.raises(ValueError, match="resource"):
-        _canonical_json_bytes(payload)
+def test_checkpoint_subclass_fusion_rejects_before_dumps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(json, "dumps", _fail_dumps)
+    hidden = _HiddenValuesDict({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)})
+    with pytest.raises(ValueError, match="container subclass"):
+        PartnerPolicyFusion.from_checkpoint_payload(_hostile_checkpoint(hidden))
 
 
 def test_exact_tuple_rejected_over_limit() -> None:
@@ -153,13 +176,14 @@ def test_exact_dict_rejected_over_limit() -> None:
         _canonical_json_bytes({str(i): i for i in range(5000)})
 
 
-def test_small_subclass_roundtrips() -> None:
-    payload = _DictSubclass({"schema": "test", "nested": _ListSubclass([1, 2])})
-    encoded = _canonical_json_bytes(payload)
-    assert encoded == json.dumps(
-        {"schema": "test", "nested": [1, 2]},
-        allow_nan=False,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
+def test_exact_container_children_are_lazy_views() -> None:
+    exact_list = [1, 2]
+    assert _json_container_children(exact_list) is exact_list
+    exact_tuple = (1, 2)
+    assert _json_container_children(exact_tuple) is exact_tuple
+    exact_dict = {"a": 1}
+    view = _json_container_children(exact_dict)
+    assert type(view) is type({}.values())
+    assert list(cast(Iterable[object], view)) == [1]
+    for leaf in ("text", b"bytes", 1, 1.5, None, True):
+        assert _json_container_children(leaf) is None

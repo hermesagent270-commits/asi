@@ -159,18 +159,23 @@ def _strict_float32(
 def _json_container_children(node: object) -> Iterable[object] | None:
     """Return JSON-container children, or None for a scalar leaf.
 
-    Use built-in lazy views and iterators so the shared walker can enforce its
-    node cap before traversing or copying an entire hostile container. Calling
-    the concrete built-in methods also avoids subclass iterator hooks while
-    covering the dict/list/tuple subclasses accepted by ``json.dumps``.
+    Only exact ``dict``, ``list``, and ``tuple`` containers are walked, through
+    their built-in lazy views so the shared walker enforces its node cap before
+    any copy of a hostile container is made. ``json.dumps`` also serializes
+    subclasses of those containers, but it does so through their overridable
+    ``items``/``__iter__`` hooks, which a preflight cannot observe faithfully;
+    such subclasses are therefore rejected before the encoder runs.
     """
 
-    if isinstance(node, dict):
-        return dict.values(node)
-    if isinstance(node, list):
-        return list.__iter__(node)
-    if isinstance(node, tuple):
-        return tuple.__iter__(node)
+    node_type = type(node)
+    if node_type is dict:
+        return cast(dict[Any, Any], node).values()
+    if node_type is list:
+        return cast(list[object], node)
+    if node_type is tuple:
+        return cast(tuple[object, ...], node)
+    if isinstance(node, (dict, list, tuple)):
+        raise ValueError("checkpoint payload contains a JSON container subclass")
     return None
 
 
