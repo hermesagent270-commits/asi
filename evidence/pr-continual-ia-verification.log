@@ -1,0 +1,27 @@
+# Verification log — fix/continual-ia-empty-recovery-guard
+head commit: 16e5c79bed139eeae79a8bdaf931e32e8cfbeba5 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Base reproduction on clean origin/main (single-phase config, one seed, real benchmark run)
+single-phase config constructed: 40 40 n_phases = 1
+condition_recovery_fraction: {'partner_alone': nan, 'observe_only': nan, 'recommendation_p05': nan, 'accept_always': nan, 'augmented_predictions': nan, 'augmented_noise': nan}
+condition_mean_recovery_steps: {'partner_alone': inf, 'observe_only': inf, 'recommendation_p05': inf, 'accept_always': inf, 'augmented_predictions': inf, 'augmented_noise': inf}
+all_values_finite: True
+numpy warnings: ['Mean of empty slice', 'invalid value encountered in scalar divide']
+
+## New test against clean origin/main
+E   Failed: DID NOT RAISE ValueError
+  /root/asi/.venv/lib/python3.12/site-packages/numpy/_core/fromnumeric.py:3862: RuntimeWarning: Mean of empty slice
+  /root/asi/.venv/lib/python3.12/site-packages/numpy/_core/_methods.py:142: RuntimeWarning: invalid value encountered in scalar divide
+1 failed, 16 deselected, 2 warnings in 2.12s
+
+## tests/test_ia_condition_result_hostile.py at head
+17 passed in 1.90s
+
+## IA suites at head (evidence, cli, integer/number/digest hostile, condition-result hostile)
+166 passed, 9 skipped in 93.27s (0:01:33)
+mypy -> Success: no issues found in 224 source files
+
+## Registry on clean origin/main before the edit
+alberta-evidence-status: overall invalid; all five claims invalid
+ruff check . -> All checks passed!
