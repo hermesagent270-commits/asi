@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterable, Iterator
+from typing import cast
 
 import jax.random as jr
 import pytest
@@ -22,6 +24,7 @@ from alberta_framework.core.dual_replay import (
     DualReplayConfig,
     DualReplayMemory,
     _canonical_json,
+    _json_container_children,
 )
 
 pytestmark = pytest.mark.unit
@@ -96,22 +99,67 @@ class _TupleSubclass(tuple):
     pass
 
 
-def test_json_subclass_list_rejects_by_node_limit() -> None:
-    over_limit = _ListSubclass([0] * (_CHECKPOINT_JSON_MAX_NODES + 1))
-    with pytest.raises(ValueError, match="resource limit"):
-        _canonical_json(over_limit)
+class _HiddenValuesDict(dict):
+    """``json.dumps`` walks ``items()``; a ``values()`` reader sees nothing."""
+
+    def values(self) -> Iterator[object]:
+        return iter(())
 
 
-def test_json_subclass_dict_rejects_by_node_limit() -> None:
-    over_limit = _DictSubclass({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)})
-    with pytest.raises(ValueError, match="resource limit"):
-        _canonical_json(over_limit)
+class _HiddenItemsDict(dict):
+    """``json.dumps`` walks ``items()``, which yields content absent from storage."""
+
+    def items(self) -> list[tuple[str, object]]:
+        return [("x", _nest(16_000))]
 
 
-def test_json_subclass_tuple_rejects_by_node_limit() -> None:
-    over_limit = _TupleSubclass(tuple([0] * (_CHECKPOINT_JSON_MAX_NODES + 1)))
-    with pytest.raises(ValueError, match="resource limit"):
-        _canonical_json(over_limit)
+class _HiddenIterList(list):
+    """``json.dumps`` walks ``__iter__``, which yields content absent from storage."""
+
+    def __iter__(self) -> Iterator[object]:
+        yield _nest(16_000)
+
+
+def _fail_dumps(*_args: object, **_kwargs: object) -> str:
+    raise AssertionError("json.dumps ran before the checkpoint container gate")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _ListSubclass([0] * (_CHECKPOINT_JSON_MAX_NODES + 1)),
+        _DictSubclass({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)}),
+        _TupleSubclass(tuple([0] * (_CHECKPOINT_JSON_MAX_NODES + 1))),
+        _HiddenValuesDict({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)}),
+        _HiddenItemsDict({"real": 1}),
+        _HiddenIterList(),
+        {"memory": [(_ListSubclass([1]),)]},
+    ],
+    ids=[
+        "list-subclass",
+        "dict-subclass",
+        "tuple-subclass",
+        "dict-hidden-values",
+        "dict-hidden-items",
+        "list-hidden-iter",
+        "nested-subclass",
+    ],
+)
+def test_json_container_subclass_rejects_before_dumps(
+    monkeypatch: pytest.MonkeyPatch, payload: object
+) -> None:
+    monkeypatch.setattr(json, "dumps", _fail_dumps)
+    with pytest.raises(ValueError, match="container subclass"):
+        _canonical_json(payload)
+
+
+def test_checkpoint_subclass_memory_rejects_before_dumps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(json, "dumps", _fail_dumps)
+    hidden = _HiddenValuesDict({str(i): i for i in range(_CHECKPOINT_JSON_MAX_NODES + 1)})
+    with pytest.raises(ValueError, match="container subclass"):
+        DualReplayMemory.from_checkpoint_payload(_hostile_checkpoint(hidden))
 
 
 def test_exact_containers_reject_by_node_limit() -> None:
@@ -124,3 +172,16 @@ def test_exact_containers_reject_by_node_limit() -> None:
     exact_tuple = tuple([0] * (_CHECKPOINT_JSON_MAX_NODES + 1))
     with pytest.raises(ValueError, match="resource limit"):
         _canonical_json(exact_tuple)
+
+
+def test_exact_container_children_are_lazy_views() -> None:
+    exact_list = [1, 2]
+    assert _json_container_children(exact_list) is exact_list
+    exact_tuple = (1, 2)
+    assert _json_container_children(exact_tuple) is exact_tuple
+    exact_dict = {"a": 1}
+    view = _json_container_children(exact_dict)
+    assert type(view) is type({}.values())
+    assert list(cast(Iterable[object], view)) == [1]
+    for leaf in ("text", b"bytes", 1, 1.5, None, True):
+        assert _json_container_children(leaf) is None

@@ -37,10 +37,9 @@ import hashlib
 import json
 import math
 import operator
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from numbers import Real
-from types import MappingProxyType
 from typing import Any, Literal, SupportsIndex, cast
 
 import chex
@@ -686,22 +685,26 @@ def _tree_nbytes(tree: object) -> int:
     return sum(int(leaf.size) * int(leaf.dtype.itemsize) for leaf in jax.tree.leaves(tree))
 
 
-def _json_container_children(node: object) -> tuple[object, ...] | None:
-    """Return JSON-container children, or None for a scalar leaf."""
+def _json_container_children(node: object) -> Iterable[object] | None:
+    """Return JSON-container children, or None for a scalar leaf.
+
+    Only exact ``dict``, ``list``, and ``tuple`` containers are walked, through
+    the built-in lazy views so the shared walker enforces its node cap before
+    any copy of a hostile container is made. ``json.dumps`` also serializes
+    subclasses of those containers, but it does so through their overridable
+    ``items``/``__iter__`` hooks, which a preflight cannot observe faithfully;
+    such subclasses are therefore rejected before the encoder runs.
+    """
 
     node_type = type(node)
     if node_type is dict:
-        return tuple(cast(dict[Any, Any], node).values())
+        return cast(dict[Any, Any], node).values()
     if node_type is list:
-        return tuple(cast(list[Any], node))
+        return cast(list[object], node)
     if node_type is tuple:
         return cast(tuple[object, ...], node)
-    if node_type is MappingProxyType:
-        return tuple(cast(Mapping[str, Any], node).values())
-    if isinstance(node, Mapping):
-        return tuple(node.values())
-    if isinstance(node, Sequence) and not isinstance(node, (str, bytes)):
-        return tuple(node)
+    if isinstance(node, (dict, list, tuple)):
+        raise ValueError("checkpoint payload contains a JSON container subclass")
     return None
 
 
