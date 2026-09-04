@@ -1,0 +1,25 @@
+# Verification log — fix/micro-ladder-resume-identity
+head commit: 3ab731569e011162fea3c8a6a66db0528a10b388 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## New test against base (before the fix)
+$ pytest "tests/test_micro_continual.py::TestCLI::test_run_refuses_to_skip_a_shard_recorded_for_another_arm_or_seed" -q -o addopts="" --tb=line
+/tmp/asi-fix-micro-resume/tests/test_micro_continual.py:1894: Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED tests/test_micro_continual.py::TestCLI::test_run_refuses_to_skip_a_shard_recorded_for_another_arm_or_seed
+1 failed in 9.07s
+
+## TestCLI at head 3ab73156
+$ pytest tests/test_micro_continual.py::TestCLI -q -o addopts=""
+.......                                                                  [100%]
+7 passed in 12.04s
+
+## Whole module at head 3ab73156
+$ pytest tests/test_micro_continual.py -q -o addopts="" -x
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+228 passed, 2 warnings in 69.34s (0:01:09)
+exit 0
+
+## Hygiene at head 3ab73156
+ruff check . -> All checks passed!
+mypy -> Success: no issues found in 224 source files
