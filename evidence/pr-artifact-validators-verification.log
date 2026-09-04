@@ -1,0 +1,29 @@
+# Verification log — fix/artifact-validators-canonical-compare
+head commit: ab682bc0c81a3134f320ac640872f2f0787470ca (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Auditor reproduction on clean origin/main (pinned artifacts read-only, source-hash provider patched to isolate known drift)
+scale-robust: baseline valid=True accepted=True; tampered re-digested (actual->true, threshold->false, minimum_seed_count->30.0): valid=True accepted=True
+multiagent: baseline valid=True accepted=True; tampered re-digested (float seeds/seed_count/minimum_seed_count/successes): valid=True accepted=True
+
+## New tests against clean origin/main
+E   assert not True
+/tmp/asi-main-clean2/tests/test_continual_multiagent_benchmark.py:426: assert not True
+FAILED tests/test_scale_robust_feature_artifact.py::test_type_punned_gate_values_fail_even_when_rehashed
+FAILED tests/test_continual_multiagent_benchmark.py::test_rehashed_type_punned_seed_and_threshold_values_fail_closed
+2 failed, 93 deselected in 24.46s
+E   assert not True
+/tmp/asi-main-clean2/tests/test_scale_robust_feature_artifact.py:1011: assert not True
+FAILED tests/test_scale_robust_feature_artifact.py::test_type_punned_gate_values_fail_even_when_rehashed
+1 failed, 61 deselected in 2.77s
+
+## Focused tests at head
+2 passed, 93 deselected in 21.81s
+
+## All scale_robust and continual_multiagent suites at head
+367 passed, 2 skipped in 28.42s
+mypy -> Success: no issues found in 224 source files
+ruff check . -> All checks passed!
+
+## Registry on clean origin/main before the edit
+alberta-evidence-status: overall invalid; all five claims invalid
