@@ -1,0 +1,29 @@
+# Verification log — fix/nexting-running-rmse-window-sum
+head commit: db4f5bb305f9f8a5ec3ed26a157faf27f0354e13 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Probe at base
+late|err|=0.01: reported_last=np.float32(0.010004882) exact=0.01 settled_min=0.00994369 settled_max=0.0100657
+late|err|=0.001: reported_last=np.float32(0.0011048543) exact=0.001 settled_min=0 settled_max=0.00110485
+late|err|=0.0001: reported_last=np.float32(0.0) exact=0.0001 settled_min=0 settled_max=0
+late|err|=1e-05: reported_last=np.float32(0.0) exact=1e-05 settled_min=0 settled_max=0
+
+## New test at base
+/tmp/asi-fix-nexting/tests/test_nexting.py:500: AssertionError:
+=========================== short test summary info ============================
+FAILED tests/test_nexting.py::TestRunningRMSE::test_running_rmse_survives_a_high_error_phase_before_a_settled_phase
+1 failed, 89 deselected in 2.06s
+
+## Probe at head db4f5bb3
+late|err|=0.01: reported_last=np.float32(0.009999999) exact=0.01 settled_min=0.01 settled_max=0.01
+late|err|=0.001: reported_last=np.float32(0.001) exact=0.001 settled_min=0.001 settled_max=0.001
+late|err|=0.0001: reported_last=np.float32(1e-04) exact=0.0001 settled_min=0.0001 settled_max=0.0001
+late|err|=1e-05: reported_last=np.float32(1e-05) exact=1e-05 settled_min=1e-05 settled_max=1e-05
+
+## tests/test_nexting.py at head db4f5bb3
+..................                                                       [100%]
+90 passed in 17.49s
+
+## Hygiene at head
+ruff check . -> All checks passed!
+mypy -> Found 1 error in 1 file (checked 224 source files)
