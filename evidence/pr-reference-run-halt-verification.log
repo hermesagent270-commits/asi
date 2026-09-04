@@ -1,0 +1,24 @@
+# Verification log — fix/reference-run-post-execution-halt
+head commit: a4517fc8d0846c2c1243a89cdd21d45166711317 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Base reproduction on clean origin/main (executor diverges on the second command, horizon 4)
+run_to_completion raised ValueError: final event transcript disagrees with run state
+runner.current_state.phase = LifePhase.HALTED | halt.stage = post_execution_divergence | accepted = 1 | executed = 2
+halt reason: executor applied action differs from the settled command
+step1 accepted: True | step2 accepted: False event is None: True
+last accepted event transcript == halted state transcript: False
+halted state transcript == pre-halt state transcript: False
+
+## New test against clean origin/main
+E   ValueError: final event transcript disagrees with run state
+/tmp/asi-main-clean3/alberta_framework/reference_life.py:1758: ValueError: final event transcript disagrees with run state
+1 failed, 43 deselected in 5.81s
+
+## New test + sibling mismatch tests at head
+5 passed, 39 deselected in 10.10s
+
+## reference-life / reference-agent / prototype-adapter suites at head (-m 'not slow')
+252 passed, 1 skipped, 15 deselected in 120.14s (0:02:00)
+mypy -> Success: no issues found in 224 source files
+ruff check . -> All checks passed!
