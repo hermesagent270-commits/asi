@@ -1,0 +1,37 @@
+# Verification log — fix/recurring-probe-refuses-non-mlp-forwards
+head commit: 12caadf21ea69bf5d01fe90340646bc77f28c9a7 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Base reproduction on clean origin/main (auditor probes, synthetic data, 3x50 steps, 128 sentinels)
+### repro_probe2 (bounded_structure_off) on clean origin/main
+adapter accepted bounded_structure_off probe = _raw_frozen_probe_input
+report sentinel_scores (phase, correct, n): [(0, 14, 128), (1, 16, 128), (1, 8, 128), (2, 14, 128), (2, 8, 128)]
+active1 units: 150 / 300
+harness (mlp_logits) correct  : 14 / 128  <- matches report phase-2 score
+deployed (masked) correct     : 11 / 128
+argmax disagreements          : 62 / 128
+max |logit diff|              : 0.10175471752882004
+
+### repro_replay (replay_context_only) on clean origin/main
+adapter accepted replay_context_only probe = _raw_frozen_probe_input context_weight = 1.0
+report sentinel_scores: [(0, 10, 128), (1, 16, 128), (1, 10, 128), (2, 13, 128), (2, 13, 128)]
+harness (mlp_logits) correct : 13 /128   deployed (contextual_logits) correct: 11 /128   argmax disagreements: 108 /128
+
+## New tests against clean origin/main
+E   Failed: DID NOT RAISE NotImplementedError
+/tmp/asi-main-clean4/tests/test_ipmnist_recurring_adapter.py:260: Failed: DID NOT RAISE NotImplementedError
+E   Failed: DID NOT RAISE NotImplementedError
+/tmp/asi-main-clean4/tests/test_ipmnist_recurring_adapter.py:260: Failed: DID NOT RAISE NotImplementedError
+E   Failed: DID NOT RAISE NotImplementedError
+/tmp/asi-main-clean4/tests/test_ipmnist_recurring_adapter.py:260: Failed: DID NOT RAISE NotImplementedError
+E   Failed: DID NOT RAISE NotImplementedError
+/tmp/asi-main-clean4/tests/test_ipmnist_recurring_adapter.py:260: Failed: DID NOT RAISE NotImplementedError
+E   Failed: DID NOT RAISE NotImplementedError
+
+## tests/test_ipmnist_recurring_adapter.py at head
+16 passed in 6.79s
+
+## Screening / recurring / replay / bounded-elastic suites at head (-m 'not slow')
+440 passed in 161.87s (0:02:41)
+mypy -> Success: no issues found in 224 source files
+ruff check . -> All checks passed!
