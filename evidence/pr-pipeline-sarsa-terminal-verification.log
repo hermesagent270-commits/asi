@@ -1,0 +1,31 @@
+# Verification log — fix/pipeline-sarsa-horde-terminal
+head commit: 6571f1ec04eb42ed991596ccc545c97578763065 (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Base reproduction on clean origin/main (default sarsa mode, gammas (0,0.5,0.9))
+terminated=1.0: horde_td_targets=[ 0.5        -0.24678278  0.20820582]  control_td_error=0.3500
+horde_state fields: ['head_traces', 'trunk_traces']
+--- head trace L2 norms after the update ---
+terminated=0.0: per-head trace norms=[0.37416574358940125, 1.0, 0.32882365584373474]
+terminated=1.0: per-head trace norms=[0.37416574358940125, 1.0, 0.32882365584373474]
+update_with_discounts(terminal) td_targets: [ 0.5 -0.2  0.3]
+
+## New tests against clean origin/main
+E   AssertionError: [Chex] Assertion assert_trees_all_close failed:  Trees (arrays) 0 and 1 differ: 
+    Error in value equality check: Values not approximately equal
+/root/asi/.venv/lib/python3.12/site-packages/chex/_src/asserts_internal.py:197: AssertionError: [Chex] Assertion assert_trees_all_close failed:  Trees (arrays) 0 and 1 differ:
+E   AttributeError: 'IndependentDemonHorde' object has no attribute 'update_with_discounts'
+/tmp/asi-main-clean4/tests/test_independent_demon_horde.py:150: AttributeError: 'IndependentDemonHorde' object has no attribute 'update_with_discounts'
+E   AttributeError: 'MixedHorde' object has no attribute 'update_with_discounts'
+/tmp/asi-main-clean4/tests/test_mixed_horde.py:627: AttributeError: 'MixedHorde' object has no attribute 'update_with_discounts'
+FAILED tests/test_pipeline.py::test_pipeline_sarsa_terminal_step_zeroes_horde_bootstrap
+FAILED tests/test_independent_demon_horde.py::TestUpdateWithDiscounts::test_spec_gammas_reproduce_update_and_zero_discounts_stop_bootstrapping
+FAILED tests/test_mixed_horde.py::test_mixed_horde_update_with_discounts_routes_per_demon_discounts
+
+## New tests at head
+3 passed, 237 deselected in 13.25s
+
+## Pipeline, Horde, independent/mixed horde, Step 3, horde actor-critic suites at head
+502 passed in 196.17s (0:03:16)
+mypy -> Success: no issues found in 224 source files (a first pass flagged one arg-type on the mixed horde's independent state; narrowed and re-run)
+ruff check . -> All checks passed!
