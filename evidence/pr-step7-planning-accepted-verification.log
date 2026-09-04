@@ -1,0 +1,22 @@
+# Verification log — fix/step7-planning-accepted-tracks-core
+head commit: 1e128b13c4c7f7df19d997a0f8ffb660fc5b57df (base origin/main c9aba7b54dedd647f8bd5f5c7bf6780b1413b676)
+environment: Linux x86_64, CPython 3.12.3, project .venv, JAX_PLATFORMS=cpu
+
+## Base reproduction on clean origin/main (auditor's natural divergent-model run)
+planning backups reported accepted but rolled back by the core learner: 15 of 32
+run_step7_smoke: finite = True  planning_acceptance_count = 32
+
+## New test against clean origin/main
+E   assert [True, True, ...ue, True, ...] == [True, True, ...ue, True, ...]
+E     
+E     At index 16 diff: True != False
+E     Use -v to get more diff
+1 failed, 121 deselected in 21.74s
+
+## New test at head
+1 passed, 121 deselected in 24.90s
+
+## Step 7 and Step 9 suites at head
+335 passed in 208.77s (0:03:28)
+mypy -> Success: no issues found in 224 source files
+ruff check . -> All checks passed!
