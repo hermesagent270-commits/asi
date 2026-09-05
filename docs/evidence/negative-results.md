@@ -9,6 +9,25 @@ When pruning a concluded lane, retain the reusable conclusion here or point to
 another durable record. Do not preserve dead code or tests merely to preserve a
 postmortem.
 
+## Intentional TD linear control
+
+The preregistered four-seed, five-arm development comparison at `e540cc8e`
+did not establish the proposed benefit. Full Intentional value updates in a
+linear SARSA consumer averaged **0.548425** reward per transition against
+**0.715525** for fixed-step SARSA with traces on SwitchingTwoState. On
+three-state RiverSwim the corresponding means were **0.243633** and
+**0.541589**, with large seed spread. All 40 runs completed, totaling 400,000
+transitions and updates. The full arm failed the frozen comparison rule;
+neither it nor a post-hoc-selected ablation is promoted.
+
+This closes only the tested configuration as a development win candidate. It
+does not refute the published method, its deep-RL implementation, or ASI's
+supervised extension. Do not repeat this configuration without a new causal
+hypothesis and separately recorded plan. Full parameters, sample standard
+deviations, paired deltas, source hashes, resource-accounting exclusions, and
+raw run logs are retained in the
+[development report](../../outputs/intentional_td_development_v1/REPORT.md).
+
 ## IPMNIST optimizer and update-rule results
 
 1. **Learning rates do not transfer across update geometries.** The initial
