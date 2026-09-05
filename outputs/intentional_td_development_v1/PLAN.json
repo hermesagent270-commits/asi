@@ -1,0 +1,91 @@
+{
+  "schema": "asi.intentional_td.development_plan.v1",
+  "issue": "https://github.com/SlopDotCash/asi/issues/1561",
+  "paper": "arXiv:2604.19033v1",
+  "official_code": "sharifnassab/Intentional_RL@e86e26fd8613ac212e9a52c3fed8a01d0a31f685",
+  "development_only": true,
+  "scientific_promotion_allowed": false,
+  "reference_dev": false,
+  "seeds": [
+    15610,
+    15611,
+    15612,
+    15613
+  ],
+  "steps_per_arm": 10000,
+  "environments": {
+    "switching_phase_length": 500,
+    "riverswim_states": 3
+  },
+  "arms": {
+    "intentional": {
+      "eta": 0.1,
+      "gamma": 0.99,
+      "lamda": 0.8,
+      "beta2": 0.999,
+      "beta_clip": 0.9998,
+      "clip_mult": 20.0,
+      "use_rmsprop": true,
+      "use_adaptive_clip": true,
+      "enabled": true
+    },
+    "intentional_no_trace": {
+      "eta": 0.1,
+      "gamma": 0.99,
+      "lamda": 0.0,
+      "beta2": 0.999,
+      "beta_clip": 0.9998,
+      "clip_mult": 20.0,
+      "use_rmsprop": true,
+      "use_adaptive_clip": true,
+      "enabled": true
+    },
+    "intentional_no_rms": {
+      "eta": 0.1,
+      "gamma": 0.99,
+      "lamda": 0.8,
+      "beta2": 0.999,
+      "beta_clip": 0.9998,
+      "clip_mult": 20.0,
+      "use_rmsprop": false,
+      "use_adaptive_clip": true,
+      "enabled": true
+    },
+    "fixed_trace": {
+      "eta": 0.05,
+      "gamma": 0.99,
+      "lamda": 0.8,
+      "beta2": 0.999,
+      "beta_clip": 0.9998,
+      "clip_mult": 20.0,
+      "use_rmsprop": true,
+      "use_adaptive_clip": true,
+      "enabled": false
+    },
+    "fixed_step": {
+      "eta": 0.05,
+      "gamma": 0.99,
+      "lamda": 0.0,
+      "beta2": 0.999,
+      "beta_clip": 0.9998,
+      "clip_mult": 20.0,
+      "use_rmsprop": true,
+      "use_adaptive_clip": true,
+      "enabled": false
+    }
+  },
+  "epsilon": 0.1,
+  "initial_parameters": "zero linear action values on one-hot observations; no bias",
+  "metric": "mean reward per transition; phase means on SwitchingTwoState",
+  "baseline": "fresh fixed_trace and fixed_step arms; no historical matched value exists",
+  "selection_rule": "no tuning; report every arm, seed, failure and negative result",
+  "decision_rule": "development benefit only if intentional beats both fixed controls by mean reward >0.02 in both environments and every paired seed delta is positive; otherwise negative or inconclusive. This never promotes an arm.",
+  "deviations": [
+    "Linear on-policy SARSA consumer, not deep Q-learning or policy-gradient reproduction",
+    "Uses official code's bias-corrected sigma mean, not paper Eq. 12's unnormalized sum",
+    "No replay, pretraining, reset at switches, task IDs, or privileged oracle inputs",
+    "Shared root keys and policy/execution key schedules; actions/states may diverge",
+    "Fixed controls retain unused state arrays as explicit accounting ballast",
+    "Wall time includes compilation and is telemetry only, not compute parity"
+  ]
+}

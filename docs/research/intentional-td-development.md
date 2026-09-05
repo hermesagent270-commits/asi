@@ -7,9 +7,12 @@ optimizer, and `benchmarks/intentional_td_development.py` consumes it in an
 uninterrupted linear SARSA agent on the existing SwitchingTwoState and
 RiverSwim environments.
 
-No comparison has been executed yet. This implementation is not a result,
-does not close the issue's complete empirical scope, and does not modify the
-frozen 144-shard reference-life scorecard or `reference-dev`.
+The [completed development comparison](../../outputs/intentional_td_development_v1/REPORT.md)
+failed its preregistered benefit rule: the full arm underperformed the
+fixed-step trace control in mean reward on both environments. All 40 runs and
+all four development seeds are retained. This does not close the issue's
+complete empirical scope or modify the frozen 144-shard scorecard or
+`reference-dev`.
 
 ## Reference and deviations
 

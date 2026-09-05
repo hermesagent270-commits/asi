@@ -1,0 +1,194 @@
+{
+  "source_head": "e540cc8ee562bb0987bb31531b4eebe914ca2f5c",
+  "runs": 40,
+  "failures": 0,
+  "environment_steps": 400000,
+  "rows": [
+    {
+      "environment": "switching",
+      "arm": "intentional",
+      "mean": 0.548425,
+      "sample_stddev": 0.021051425129905127,
+      "per_seed": [
+        0.5504,
+        0.56,
+        0.5182,
+        0.5651
+      ]
+    },
+    {
+      "environment": "switching",
+      "arm": "intentional_no_trace",
+      "mean": 0.72505,
+      "sample_stddev": 0.010011160438896823,
+      "per_seed": [
+        0.7208,
+        0.7298,
+        0.7362,
+        0.7134
+      ]
+    },
+    {
+      "environment": "switching",
+      "arm": "intentional_no_rms",
+      "mean": 0.5833999999999999,
+      "sample_stddev": 0.007160540016879529,
+      "per_seed": [
+        0.5841,
+        0.583,
+        0.592,
+        0.5745
+      ]
+    },
+    {
+      "environment": "switching",
+      "arm": "fixed_trace",
+      "mean": 0.715525,
+      "sample_stddev": 0.006325279967453339,
+      "per_seed": [
+        0.7203,
+        0.7064,
+        0.7162,
+        0.7192
+      ]
+    },
+    {
+      "environment": "switching",
+      "arm": "fixed_step",
+      "mean": 0.49355000000000004,
+      "sample_stddev": 0.014842394236330833,
+      "per_seed": [
+        0.4771,
+        0.5106,
+        0.4862,
+        0.5003
+      ]
+    },
+    {
+      "environment": "riverswim",
+      "arm": "intentional",
+      "mean": 0.24363337493164,
+      "sample_stddev": 0.3196973358020817,
+      "per_seed": [
+        0.004645499896164983,
+        0.006346999896131456,
+        0.2820449999364093,
+        0.6814959999978543
+      ]
+    },
+    {
+      "environment": "riverswim",
+      "arm": "intentional_no_trace",
+      "mean": 0.19940224992507138,
+      "sample_stddev": 0.3247274716998494,
+      "per_seed": [
+        0.004665499895717949,
+        0.007143999896198511,
+        0.1043034999105148,
+        0.6814959999978543
+      ]
+    },
+    {
+      "environment": "riverswim",
+      "arm": "intentional_no_rms",
+      "mean": 0.4427613749645417,
+      "sample_stddev": 0.2936008701657353,
+      "per_seed": [
+        0.6572214999995194,
+        0.5641469999833032,
+        0.008867999900132418,
+        0.5408089999752119
+      ]
+    },
+    {
+      "environment": "riverswim",
+      "arm": "fixed_trace",
+      "mean": 0.5415893749790034,
+      "sample_stddev": 0.21557609689183874,
+      "per_seed": [
+        0.6572214999995194,
+        0.6524029999976978,
+        0.21844999992735684,
+        0.6382829999914393
+      ]
+    },
+    {
+      "environment": "riverswim",
+      "arm": "fixed_step",
+      "mean": 0.17538474992155098,
+      "sample_stddev": 0.33688223798627437,
+      "per_seed": [
+        0.004665499895717949,
+        0.007143999896198511,
+        0.009028499896544964,
+        0.6807009999977425
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "environment": "switching",
+      "control": "fixed_trace",
+      "mean_delta": -0.16709999999999997,
+      "sample_stddev_delta": 0.022804531713382474,
+      "per_seed_deltas": [
+        -0.16990000000000005,
+        -0.14639999999999997,
+        -0.19799999999999995,
+        -0.1540999999999999
+      ],
+      "passes": false
+    },
+    {
+      "environment": "switching",
+      "control": "fixed_step",
+      "mean_delta": 0.05487500000000001,
+      "sample_stddev_delta": 0.018177160577677345,
+      "per_seed_deltas": [
+        0.07329999999999998,
+        0.0494,
+        0.03199999999999997,
+        0.06480000000000008
+      ],
+      "passes": true
+    },
+    {
+      "environment": "riverswim",
+      "control": "fixed_trace",
+      "mean_delta": -0.29795600004736333,
+      "sample_stddev_delta": 0.40580962971855683,
+      "per_seed_deltas": [
+        -0.6525760001033544,
+        -0.6460560001015664,
+        0.06359500000905247,
+        0.043213000006414926
+      ],
+      "passes": false
+    },
+    {
+      "environment": "riverswim",
+      "control": "fixed_step",
+      "mean_delta": 0.06824862501008902,
+      "sample_stddev_delta": 0.1365134641283251,
+      "per_seed_deltas": [
+        -1.9999999552965282e-05,
+        -0.0007970000000670548,
+        0.27301650003986433,
+        0.0007950000001117896
+      ],
+      "passes": false
+    }
+  ],
+  "passes_preregistered_benefit_rule": false,
+  "wall_seconds_sum_including_compile": 23.610672533046454,
+  "agent_bytes_by_environment": {
+    "switching": [
+      60
+    ],
+    "riverswim": [
+      84
+    ]
+  },
+  "source_verification": "Every recorded Python source digest matches the measured checkout.",
+  "result_sha256": "0d9d0835808200c6a92bda1ebc4f7a47b8fa0377523cbaf2e6d56b678cb7f0e5"
+}
