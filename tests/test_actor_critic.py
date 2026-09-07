@@ -54,6 +54,66 @@ def test_actor_critic_init_predict_and_start_shapes() -> None:
     assert int(next_state.last_action) in range(3)
 
 
+@pytest.mark.parametrize(
+    ("logits", "temperature"),
+    [
+        ([1e38, 2e38], 0.25),
+        ([-2e38, -1e38], 0.25),
+        ([2e38, 2e38], 0.25),
+        ([-2e38, 2e38], 0.25),
+        ([1.0, 2.0], 0.25),
+        ([1.0, 2.0], 0.3),
+        ([1.0, 2.0], 1.0),
+        ([-2.0, 2.0], 3.0),
+        ([-2e38, 2e38], 3e38),
+    ],
+)
+def test_actor_critic_temperature_scaling_preserves_finite_policy(
+    logits: list[float], temperature: float
+) -> None:
+    """Finite logits must survive cooling; heating must not overflow their difference."""
+    agent = ActorCriticAgent(ActorCriticConfig(n_actions=2, temperature=temperature))
+    observation = jnp.ones(1, dtype=jnp.float32)
+    state = agent.init(feature_dim=1, key=jr.key(160)).replace(
+        actor_bias=jnp.asarray(logits, dtype=jnp.float32),
+    )
+    # Scale in float64 to keep the oracle independent of float32 evaluation order.
+    scaled = np.asarray(state.actor_bias, dtype=np.float64) / agent.config.temperature
+    expected = np.exp(scaled - scaled.max())
+    expected /= expected.sum()
+
+    started, action, policy = agent.start(state, observation)
+    np.testing.assert_allclose(policy, expected, rtol=1e-6)
+    assert float(expected[int(action)]) > 0.0
+    result = agent.update(started, jnp.array(1.0), observation)
+    assert bool(result.update_applied)
+    assert int(result.state.step_count) == 1
+    np.testing.assert_allclose(result.state.critic_weights, [0.05], rtol=1e-6)
+    _assert_actor_critic_numeric_state_finite(result.state)
+
+
+def test_actor_critic_array_runner_learns_after_temperature_overflow() -> None:
+    agent = ActorCriticAgent(ActorCriticConfig(n_actions=2, temperature=0.25))
+    state = agent.init(feature_dim=1, key=jr.key(161)).replace(
+        actor_bias=jnp.array([1e38, 2e38], dtype=jnp.float32),
+    )
+    result = run_actor_critic_from_arrays(
+        agent,
+        state,
+        observations=jnp.ones((2, 1)),
+        rewards=jnp.ones(2),
+        terminated=jnp.array([False, True]),
+        next_observations=jnp.ones((2, 1)),
+    )
+
+    np.testing.assert_array_equal(result.updates_applied, [True, True])
+    np.testing.assert_array_equal(result.actions, [1, 1])
+    np.testing.assert_array_equal(result.policies, [[0.0, 1.0], [0.0, 1.0]])
+    np.testing.assert_allclose(result.td_errors, [1.0, 0.9], rtol=1e-6)
+    assert int(result.state.step_count) == 2
+    np.testing.assert_allclose(result.state.critic_weights, [0.095], rtol=1e-6)
+
+
 def test_actor_critic_sampling_preserves_reported_rare_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

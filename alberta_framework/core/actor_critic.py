@@ -662,7 +662,19 @@ class ActorCriticAgent:
         """Compute softmax action probabilities for one observation."""
         observation = self._observation(state, observation)
         logits = state.actor_weights @ observation + state.actor_bias
-        return jax.nn.softmax(logits / self._config.temperature)
+        temperature = self._config.temperature
+        if temperature == 1.0:
+            return jax.nn.softmax(logits)
+        if temperature < 1.0:
+            # Center before cooling can overflow finite logits to infinity.
+            logits = logits - jax.lax.stop_gradient(jnp.max(logits))
+        # A reciprocal of a very large temperature can flush to zero. Split
+        # the scale so neither the divisor nor its reciprocal is subnormal.
+        # For heating, scale before softmax centers: opposite-sign finite
+        # logits can have an unrepresentable difference before scaling.
+        mantissa, exponent = math.frexp(temperature)
+        scaled_logits = jnp.ldexp(logits, -exponent) / mantissa
+        return jax.nn.softmax(scaled_logits)
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def value(self, state: ActorCriticState, observation: Array) -> Float[Array, ""]:
