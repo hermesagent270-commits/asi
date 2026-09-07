@@ -1760,7 +1760,15 @@ class DifferentialSARSAReferenceAdapter(_BaseReferenceControlAdapter):
             key,
             name="differential-SARSA initial key",
         )
-        return None, self._differential_agent.init(self.config.observation_dim, explicit_key)
+        learner = self._differential_agent.init(self.config.observation_dim, explicit_key)
+        # The exact-dispatch adapter never calls the core agent's timed loop
+        # helpers. Keep their host-clock metadata out of persistent state, as
+        # the discounted-SARSA adapter does for the same inherited fields.
+        learner = learner.replace(  # type: ignore[attr-defined]
+            birth_timestamp=jnp.asarray(0.0, dtype=jnp.float32),
+            uptime_s=jnp.asarray(0.0, dtype=jnp.float32),
+        )
+        return None, learner
 
     def _start_payload(
         self,
@@ -1799,6 +1807,8 @@ class DifferentialSARSAReferenceAdapter(_BaseReferenceControlAdapter):
             ("average_reward", learner.average_reward, ()),
             ("last_observation", learner.last_observation, (self.config.observation_dim,)),
             ("epsilon", learner.epsilon, ()),
+            ("birth_timestamp", learner.birth_timestamp, ()),
+            ("uptime_s", learner.uptime_s, ()),
         )
         for name, value, shape in expected_float_shapes:
             array = np.asarray(value)
@@ -1827,6 +1837,10 @@ class DifferentialSARSAReferenceAdapter(_BaseReferenceControlAdapter):
         )
         if not _tree_finite(learner):
             raise DecisionOwnershipError("differential-SARSA state must be finite")
+        if float(learner.birth_timestamp) != 0.0 or float(learner.uptime_s) != 0.0:
+            raise DecisionOwnershipError(
+                "differential-SARSA timing metadata must remain disabled"
+            )
         if int(learner.step_count) != state.decision_index:
             raise DecisionOwnershipError("differential-SARSA counter does not match decision")
         if not np.array_equal(step_words, _counter_words(state.decision_index)):
