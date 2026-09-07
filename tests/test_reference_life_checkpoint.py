@@ -615,3 +615,39 @@ def test_save_reference_life_checkpoint_refuses_off_linux(tmp_path: Path) -> Non
     with pytest.raises(OSError, match="atomic no-replace rename requires Linux renameat2"):
         save_reference_life_checkpoint(runner, state, tmp_path)
     assert not any(p.name.startswith("generation-") for p in tmp_path.iterdir())
+
+
+def test_checkpoint_validator_rejects_completed_segment_presence_forgery() -> None:
+    runner = _runner()
+    first_segment, _ = _advance(runner, runner.init(), 1)
+    phase_switch, _ = _advance(runner, first_segment, 2)
+
+    first_value = phase_switch.metrics.first_completed_segment_reward[0]
+    latest_value = phase_switch.metrics.latest_completed_segment_reward[0]
+    assert first_value is not None
+    assert latest_value is not None
+    forged_metrics = (
+        dataclasses.replace(
+            first_segment.metrics,
+            first_completed_segment_reward=(0.0, None),
+            latest_completed_segment_reward=(0.0, None),
+        ),
+        dataclasses.replace(
+            phase_switch.metrics,
+            first_completed_segment_reward=(None, None),
+            latest_completed_segment_reward=(None, None),
+        ),
+        dataclasses.replace(
+            phase_switch.metrics,
+            first_completed_segment_reward=(first_value, 0.0),
+            latest_completed_segment_reward=(latest_value, 0.0),
+        ),
+    )
+    for state, metrics in (
+        (first_segment, forged_metrics[0]),
+        (phase_switch, forged_metrics[1]),
+        (phase_switch, forged_metrics[2]),
+    ):
+        forged = dataclasses.replace(state, metrics=metrics)
+        with pytest.raises(ValueError, match="completed-segment presence"):
+            runner.validate_checkpoint_state(forged)
