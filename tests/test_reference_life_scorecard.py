@@ -1033,15 +1033,29 @@ def test_failed_record_requires_exact_partial_schema_and_stage(
     )
     plan = build_development_plan()
     record = scorecard.run_scorecard_shard(plan, scorecard.iter_run_specs(plan)[0])
-    for mutation in ("extra_partial", "unknown_stage", "build_count"):
+    for mutation in (
+        "extra_partial",
+        "unknown_stage",
+        "build_count",
+        "prestep_telemetry",
+    ):
         altered = copy.deepcopy(record)
         if mutation == "extra_partial":
             altered["partial_outcome"]["extra"] = 1
         elif mutation == "unknown_stage":
             altered["failure"]["stage"] = "unknown"
-        else:
+        elif mutation == "build_count":
             altered["failure"]["accepted_events"] = 1
             altered["partial_outcome"]["accepted_events"] = 1
+        else:
+            altered["telemetry"].update(
+                {
+                    "setup_seconds": 0.0,
+                    "cold_step_seconds": 0.0,
+                    "warmed_step_count": 7,
+                    "warmed_step_seconds_mean": 0.0,
+                }
+            )
         _redigest(altered)
         with pytest.raises(ValueError):
             scorecard.validate_scorecard_run_record(altered, plan=plan)

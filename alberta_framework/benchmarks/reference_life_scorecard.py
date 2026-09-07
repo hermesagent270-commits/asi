@@ -2767,6 +2767,12 @@ def _validate_run_record(
         )
         if failure["stage"] in {"build", "init"} and failure["accepted_events"] != 0:
             raise ValueError(f"{path} pre-step failure cannot claim accepted events")
+        if failure["stage"] in {"build", "init"} and (
+            optional_durations["setup_seconds"] is not None
+            or optional_durations["cold_step_seconds"] is not None
+            or warmed_count != 0
+        ):
+            raise ValueError(f"{path}.telemetry claims work after a pre-step failure")
         if failure["stage"] == "build":
             if any(
                 resolved[field] is not None
