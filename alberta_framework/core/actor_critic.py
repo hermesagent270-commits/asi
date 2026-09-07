@@ -1581,14 +1581,17 @@ class ContinuousActorCriticAgent:
         bootstrap = jnp.where(discount == 0.0, jnp.zeros_like(next_value), discount * next_value)
         td_error = reward + bootstrap - value
 
-        sigma_sq = prev_sigma * prev_sigma + 1e-8
         diff = action - prev_mean
         # Gaussian score function (per-dimension):
         #   grad log pi w.r.t. mean   = diff / sigma^2
         #   grad log pi w.r.t. log_sigma = diff^2 / sigma^2 - 1
-        mean_grad_bias = diff / sigma_sq
+        # Standardize first: squaring sigma can underflow/overflow even when
+        # both scores are representable. A fixed variance floor would change
+        # the policy gradient and can reverse the log-sigma update's sign.
+        standardized_diff = diff / prev_sigma
+        mean_grad_bias = standardized_diff / prev_sigma
         mean_grad_weights = mean_grad_bias[:, None] * prev_obs[None, :]
-        log_sigma_grad = (diff * diff) / sigma_sq - 1.0
+        log_sigma_grad = standardized_diff * standardized_diff - 1.0
 
         actor_decay = discount * cfg.actor_lamda
         critic_decay = discount * cfg.critic_lamda
