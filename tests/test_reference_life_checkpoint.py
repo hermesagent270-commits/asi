@@ -758,3 +758,36 @@ def test_checkpoint_validator_rejects_impossible_switching_phase_totals(field: s
 
     with pytest.raises(ValueError, match="phase totals.*payoff bounds"):
         runner.validate_checkpoint_state(forged)
+
+
+def test_checkpoint_validator_rejects_alternate_seed_zero_event_agent_state() -> None:
+    runner = _runner()
+    state = runner.init()
+    observation = runner.environment_adapter.current_observation(state.environment_state)
+    forged_agent = runner.agent_adapter.init(
+        jax.random.key(999, impl="threefry2x32"),
+        lifecycle_id=state.lifecycle_id,
+    )
+    forged_agent, forged_decision = runner.agent_adapter.start(
+        forged_agent,
+        observation_id=f"{state.lifecycle_id}:observation:0",
+        observation=observation,
+    )
+    assert forged_decision != state.transaction_state.decision
+    checkpoint_state = dataclasses.replace(
+        state,
+        commit_generation=1,
+        checkpoint_generation=1,
+    )
+    runner.validate_checkpoint_state(checkpoint_state)
+    forged = dataclasses.replace(
+        checkpoint_state,
+        agent_state=forged_agent,
+        transaction_state=dataclasses.replace(
+            checkpoint_state.transaction_state,
+            decision=forged_decision,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="seeded initial agent"):
+        runner.validate_checkpoint_state(forged)
