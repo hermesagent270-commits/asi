@@ -136,6 +136,140 @@ def test_continuous_actor_critic_policy_gradient_sign() -> None:
     assert float(result.td_error) > 0.0
 
 
+@pytest.mark.parametrize("log_sigma", [-10.0, -0.5, 0.0, 2.0])
+def test_continuous_actor_critic_scores_match_policy_log_probability(log_sigma: float) -> None:
+    """A rewarded two-sigma action must increase, not decrease, exploration."""
+    config = ContinuousActorCriticConfig(
+        action_dim=3,
+        actor_step_size=0.01,
+        critic_step_size=0.0,
+        actor_lamda=0.0,
+        critic_lamda=0.0,
+        log_sigma_init=log_sigma,
+        log_sigma_min=-60.0,
+        log_sigma_max=60.0,
+    )
+    agent = ContinuousActorCriticAgent(config)
+    obs = jnp.array([1.0, -0.5], dtype=jnp.float32)
+    state = agent.init(feature_dim=2, key=jr.key(150))
+    mean, sigma = agent.policy_params(state, obs)
+    action = mean + sigma * jnp.array([-2.0, 0.0, 2.0], dtype=jnp.float32)
+    state = state.replace(last_observation=obs, last_action=action)
+
+    def log_probability(mean: jax.Array, log_std: jax.Array) -> jax.Array:
+        return jax.scipy.stats.norm.logpdf(action, mean, jnp.exp(log_std)).sum()
+
+    mean_score, sigma_score = jax.grad(log_probability, argnums=(0, 1))(
+        mean, state.log_sigma
+    )
+    result = jax.jit(agent.update)(state, jnp.array(1.0), jnp.zeros_like(obs))
+
+    assert bool(result.update_applied)
+    np.testing.assert_allclose(result.state.mean_trace_bias, mean_score, rtol=1e-6)
+    np.testing.assert_allclose(result.state.log_sigma_trace, sigma_score, rtol=1e-6)
+    np.testing.assert_allclose(
+        result.state.mean_weights,
+        config.actor_step_size * mean_score[:, None] * obs[None, :],
+        rtol=1e-6,
+    )
+    np.testing.assert_allclose(
+        result.state.mean_bias, config.actor_step_size * mean_score, rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        result.state.log_sigma,
+        state.log_sigma + config.actor_step_size * sigma_score,
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize("log_sigma", [-50.0, 50.0])
+def test_continuous_actor_critic_scores_avoid_variance_range_loss(log_sigma: float) -> None:
+    """The score remains representable even when float32 sigma squared does not."""
+    config = ContinuousActorCriticConfig(
+        action_dim=1,
+        actor_step_size=0.01,
+        critic_step_size=0.0,
+        actor_lamda=0.0,
+        critic_lamda=0.0,
+        log_sigma_init=log_sigma,
+        log_sigma_min=-60.0,
+        log_sigma_max=60.0,
+    )
+    agent = ContinuousActorCriticAgent(config)
+    obs = jnp.ones(1, dtype=jnp.float32)
+    state = agent.init(feature_dim=1, key=jr.key(151))
+    _, sigma = agent.policy_params(state, obs)
+    action = 2.0 * sigma
+    state = state.replace(last_observation=obs, last_action=action)
+    result = jax.jit(agent.update)(state, jnp.array(1.0), jnp.zeros_like(obs))
+
+    assert bool(result.update_applied)
+    # Evaluate the analytic oracle in float64 to avoid the failing intermediates.
+    variance = np.asarray(sigma, dtype=np.float64) ** 2
+    mean_score = np.asarray(action, dtype=np.float64) / variance
+    sigma_score = np.asarray(action, dtype=np.float64) ** 2 / variance - 1.0
+    np.testing.assert_allclose(result.state.mean_trace_bias, mean_score, rtol=1e-6)
+    np.testing.assert_allclose(result.state.log_sigma_trace, sigma_score, rtol=1e-6)
+    np.testing.assert_allclose(
+        result.state.mean_bias, config.actor_step_size * mean_score, rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        result.state.log_sigma, log_sigma + config.actor_step_size * sigma_score, rtol=1e-6
+    )
+
+
+def test_continuous_actor_critic_array_runner_rewards_small_sigma_action() -> None:
+    agent = ContinuousActorCriticAgent(
+        ContinuousActorCriticConfig(
+            action_dim=1,
+            actor_step_size=0.01,
+            critic_step_size=0.0,
+            actor_lamda=0.0,
+            critic_lamda=0.0,
+            log_sigma_init=-10.0,
+            log_sigma_min=-20.0,
+        )
+    )
+    state = agent.init(feature_dim=1, key=jr.key(152))
+    _, sigma = agent.policy_params(state, jnp.ones(1))
+    result = run_continuous_actor_critic_from_arrays(
+        agent,
+        state,
+        observations=jnp.ones((1, 1)),
+        rewards=jnp.ones(1),
+        terminated=jnp.ones(1, dtype=jnp.bool_),
+        next_observations=jnp.zeros((1, 1)),
+        actions=(2.0 * sigma)[None, :],
+    )
+
+    assert bool(result.updates_applied[0])
+    np.testing.assert_allclose(result.state.log_sigma, [-9.97], rtol=1e-6)
+    np.testing.assert_allclose(result.state.mean_weights, 0.02 / sigma[None, :], rtol=1e-6)
+    np.testing.assert_array_equal(result.state.log_sigma_trace, [0.0])
+
+
+@pytest.mark.parametrize("terminated", [False, True])
+def test_continuous_actor_critic_nonfinite_mean_score_rolls_back(terminated: bool) -> None:
+    """An unrepresentable true score must reject the entire transition."""
+    agent = ContinuousActorCriticAgent(
+        ContinuousActorCriticConfig(
+            action_dim=1,
+            log_sigma_init=-85.0,
+            log_sigma_min=-86.0,
+        )
+    )
+    obs = jnp.ones(1)
+    state = agent.init(feature_dim=1, key=jr.key(153))
+    _, sigma = agent.policy_params(state, obs)
+    state = state.replace(last_observation=obs, last_action=100.0 * sigma)
+    result = jax.jit(agent.update)(
+        state, jnp.array(1.0), jnp.zeros_like(obs), terminated=jnp.array(terminated)
+    )
+
+    assert not bool(result.update_applied)
+    chex.assert_trees_all_equal(result.state, state)
+
+
 def test_continuous_actor_critic_terminal_resets_traces() -> None:
     config = ContinuousActorCriticConfig(
         action_dim=2,
