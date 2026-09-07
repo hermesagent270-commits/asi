@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from alberta_framework import (
+    Adam,
     Autostep,
     DemonType,
     GVFSpec,
@@ -1176,6 +1177,114 @@ class TestSARSALambdaTraces:
     ``config.gamma * lamda`` — with the TD target still computed
     externally (no internal bootstrap).
     """
+
+    @pytest.mark.parametrize("terminated", [False, True])
+    @pytest.mark.parametrize("lamda", [0.0, 0.8])
+    def test_delayed_reward_credits_previous_action(self, terminated, lamda):
+        """A later action's TD error updates every eligible control head."""
+        agent = _make_agent(
+            hidden_sizes=(), gamma=0.9, epsilon_start=0.0, lamda=lamda, step_size=0.1
+        )
+        state = agent.init(feature_dim=2, key=jr.key(14))
+        inner = state.learner_state
+        # Q(s0, a0) = Q(s1, a1) = 0, but Q(s1, a0) = 0.4. The delayed
+        # update must use the taken action's common TD error, not head 0's.
+        params = inner.head_params.replace(
+            weights=(jnp.array([[0.0, 0.4]]), jnp.zeros((1, 2))),
+            biases=(jnp.zeros(1), jnp.zeros(1)),
+        )
+        state = state.replace(
+            learner_state=inner.replace(head_params=params),
+            last_action=jnp.array(0, dtype=jnp.int32),
+            last_observation=jnp.array([1.0, 0.0]),
+        )
+        first = agent.update(
+            state, jnp.array(0.0), jnp.array([0.0, 1.0]), jnp.array(False), jnp.array(1)
+        )
+        result = agent.update(
+            first.state, jnp.array(1.0), jnp.zeros(2), jnp.array(terminated), jnp.array(0)
+        )
+
+        assert int(result.state.step_count) == 2
+        np.testing.assert_allclose(result.td_error, 1.0)
+        expected_credit = 0.1 * 0.9 * lamda
+        np.testing.assert_allclose(
+            result.state.learner_state.head_params.weights[0],
+            [[expected_credit, 0.4]], rtol=1e-6, atol=1e-8,
+        )
+        np.testing.assert_allclose(
+            result.state.learner_state.head_params.biases[0],
+            [expected_credit], rtol=1e-6, atol=1e-8,
+        )
+        np.testing.assert_allclose(
+            result.state.learner_state.head_params.weights[1], [[0.0, 0.1]], rtol=1e-6
+        )
+        if terminated and lamda > 0.0:
+            for trace in jax.tree.leaves(result.state.learner_state.head_traces):
+                np.testing.assert_array_equal(trace, jnp.zeros_like(trace))
+
+    def test_delayed_credit_uses_head_optimizer_and_bounder(self):
+        """Inactive credit respects Adam's delta convention and the step bound."""
+        agent = _make_agent(
+            hidden_sizes=(), gamma=0.9, epsilon_start=0.0, lamda=0.8,
+            head_optimizer=Adam(step_size=0.2, beta1=0.0, beta2=0.0),
+            bounder=ObGDBounding(kappa=10.0),
+        )
+        state = agent.init(feature_dim=2, key=jr.key(15))
+        inner = state.learner_state
+        state = state.replace(
+            learner_state=inner.replace(
+                head_params=jax.tree.map(jnp.zeros_like, inner.head_params)
+            ),
+            last_action=jnp.array(0, dtype=jnp.int32),
+            last_observation=jnp.array([1.0, 0.0]),
+        )
+        first = agent.update(
+            state, jnp.array(0.0), jnp.array([0.0, 1.0]), jnp.array(False), jnp.array(1)
+        )
+        result = agent.update(
+            first.state, jnp.array(2.0), jnp.zeros(2), jnp.array(False), jnp.array(0)
+        )
+
+        assert int(result.state.step_count) == 2
+        np.testing.assert_allclose(result.td_error, 2.0)
+        # Adam with beta1=beta2=0 proposes +0.2 on each nonzero coordinate.
+        # Two coordinates (weight+bias) meet ObGD's total-step bound of 0.1.
+        np.testing.assert_allclose(
+            result.state.learner_state.head_params.weights[0], [[0.05, 0.0]],
+            rtol=1e-6, atol=1e-8,
+        )
+        np.testing.assert_allclose(
+            result.state.learner_state.head_params.biases[0], [0.05], rtol=1e-6
+        )
+
+    def test_nonfinite_delayed_credit_rolls_back_complete_update(self):
+        """A failing inactive-head update cannot commit the active head or clock."""
+        agent = _make_agent(
+            hidden_sizes=(), gamma=0.9, epsilon_start=0.0, lamda=0.8, step_size=0.1
+        )
+        state = agent.init(feature_dim=2, key=jr.key(16))
+        inner = state.learner_state
+        traces = list(inner.head_traces)
+        traces[0] = (jnp.array([[1e20, 0.0]]), jnp.zeros(1))
+        state = state.replace(
+            learner_state=inner.replace(
+                head_params=jax.tree.map(jnp.zeros_like, inner.head_params),
+                head_traces=tuple(traces),
+                birth_timestamp=jnp.array(0.0),
+                uptime_s=jnp.array(0.0),
+            ),
+            last_action=jnp.array(1, dtype=jnp.int32),
+            last_observation=jnp.array([0.0, 1.0]),
+        )
+        result = agent.update(
+            state, jnp.array(1e20), jnp.zeros(2), jnp.array(False), jnp.array(0)
+        )
+
+        # Head 1's 1e19 update is finite; the inactive head's delayed 7.2e38
+        # update overflows float32. Both updates and both counters must roll back.
+        assert int(result.action) == -1
+        chex.assert_trees_all_equal(result.state, state)
 
     def test_control_head_trace_decay_factor(self):
         """Active control head's trace decays by gamma*lamda, not 0."""
