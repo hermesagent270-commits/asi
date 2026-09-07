@@ -35,6 +35,10 @@ from jaxtyping import Float, Int
 
 from alberta_framework.core._float32_scalars import validated_float32_scalar_with_ratio
 from alberta_framework.core.horde import HordeLearner
+from alberta_framework.core.learners import (
+    _gradient_step_error,
+    _update_from_gradient_with_diagnostics,
+)
 from alberta_framework.core.multi_head_learner import (
     MULTI_HEAD_MLP_STATE_SCHEMA,
     AnyOptimizer,
@@ -833,6 +837,42 @@ class SARSAAgent:
             jax.lax.cond(policy_valid, lambda: key, lambda: state.rng_key),
         )
 
+    def _credit_control_trace(
+        self,
+        state: MultiHeadMLPState,
+        index: int,
+        traces: tuple[Array, Array],
+        error: Array,
+    ) -> tuple[Array, Array, tuple[Array, Array], tuple[Any, Any], Array]:
+        """Apply the shared SARSA error to an inactive head's decayed trace."""
+        learner = self._horde.learner
+        optimizer = (
+            learner.head_optimizer if learner.head_optimizer is not None else learner.optimizer
+        )
+        weights, biases = state.head_params.weights[index], state.head_params.biases[index]
+        old_w_opt, old_b_opt = state.head_optimizer_states[index]
+        w_trace, b_trace = traces
+        w_step, w_opt, w_applied = _update_from_gradient_with_diagnostics(
+            optimizer, old_w_opt, w_trace, error=error, param=weights
+        )
+        b_step, b_opt, b_applied = _update_from_gradient_with_diagnostics(
+            optimizer, old_b_opt, b_trace, error=error, param=biases
+        )
+        step_error = _gradient_step_error(optimizer, error)
+        bounder = learner._bounder
+        if bounder is not None:
+            (w_step, b_step), scale = bounder.bound(
+                (w_step, b_step), step_error, (weights, biases)
+            )
+            w_trace, b_trace = scale * w_trace, scale * b_trace
+        return (
+            weights + step_error * w_step,
+            biases + step_error * b_step,
+            (w_trace, b_trace),
+            (w_opt, b_opt),
+            w_applied & b_applied,
+        )
+
     @functools.partial(jax.jit, static_argnums=(0,))
     def update(
         self,
@@ -846,8 +886,9 @@ class SARSAAgent:
         """Perform one SARSA update step.
 
         Computes the SARSA target ``r + gamma * Q(s', a')`` and updates
-        the Horde. Only the previously-taken action's head receives the
-        target; all other Q-heads get NaN (no update).
+        the Horde. Only the previously-taken action's head receives a new
+        prediction gradient. With nonzero lambda, the same TD error also
+        updates other control heads through their decayed eligibility traces.
 
         Args:
             state: Current SARSA state
@@ -975,27 +1016,50 @@ class SARSAAgent:
             discounts,
         )
 
-        # SARSA(lambda) trace maintenance. The inner learner decays only the
-        # active head's trace (inactive heads are frozen by NaN masking), so
-        # decay the untouched control heads here and clear all control-head
-        # traces at episode boundaries so credit never crosses a reset.
+        # SARSA(lambda) uses one TD error for every eligible state/action.
+        # Horde's NaN masking freezes inactive heads, so decay AND credit
+        # those heads here without adding the current observation gradient.
+        # Apply terminal credit before clearing traces for the next episode.
+        q_old = q_previous[safe_last_action]
+        td_error = jnp.where(action_valid, sarsa_target - q_old, 0.0)
         new_learner_state = horde_result.state
+        trace_updates_applied = jnp.asarray(True, dtype=jnp.bool_)
         if self._lamda > 0.0:
             gl = jnp.asarray(gamma * self._lamda, dtype=jnp.float32)
             head_traces = list(new_learner_state.head_traces)
+            head_weights = list(new_learner_state.head_params.weights)
+            head_biases = list(new_learner_state.head_params.biases)
+            head_opt_states = list(new_learner_state.head_optimizer_states)
             for i in range(n_actions):
                 w_trace, b_trace = head_traces[i]
                 decay = jnp.where(state.last_action == i, 1.0, gl)
                 skipped_w = jnp.where(decay == 0.0, jnp.zeros_like(w_trace), decay * w_trace)
                 skipped_b = jnp.where(decay == 0.0, jnp.zeros_like(b_trace), decay * b_trace)
+                if gamma > 0.0:
+                    weights, biases, traces, opt_states, applied = jax.lax.cond(
+                        state.last_action != i,
+                        lambda: self._credit_control_trace(
+                            new_learner_state, i, (skipped_w, skipped_b), td_error
+                        ),
+                        lambda: (
+                            head_weights[i], head_biases[i], (skipped_w, skipped_b),
+                            head_opt_states[i], jnp.asarray(True, dtype=jnp.bool_),
+                        ),
+                    )
+                    head_weights[i], head_biases[i] = weights, biases
+                    skipped_w, skipped_b = traces
+                    head_opt_states[i] = opt_states
+                    trace_updates_applied = trace_updates_applied & applied
                 new_w = jnp.where(safe_terminated, jnp.zeros_like(w_trace), skipped_w)
                 new_b = jnp.where(safe_terminated, jnp.zeros_like(b_trace), skipped_b)
                 head_traces[i] = (new_w, new_b)
-            new_learner_state = new_learner_state.replace(head_traces=tuple(head_traces))
-
-        # TD error for the taken action
-        q_old = q_previous[safe_last_action]
-        td_error = jnp.where(action_valid, sarsa_target - q_old, 0.0)
+            new_learner_state = new_learner_state.replace(
+                head_params=new_learner_state.head_params.replace(
+                    weights=tuple(head_weights), biases=tuple(head_biases)
+                ),
+                head_traces=tuple(head_traces),
+                head_optimizer_states=tuple(head_opt_states),
+            )
 
         # Epsilon decay
         cfg = self._sarsa_config
@@ -1028,6 +1092,7 @@ class SARSAAgent:
             & action_valid
             & inputs_valid
             & (horde_result.update_applied | zero_decay_trace_recovery)
+            & trace_updates_applied
             & candidate_valid
         )
         diagnostic_valid = (
