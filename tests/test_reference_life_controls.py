@@ -739,6 +739,39 @@ def test_differential_sarsa_applies_hand_computed_first_update() -> None:
     assert step.event.step_result.parameters_changed
 
 
+def test_differential_sarsa_adapter_excludes_host_clock_from_persistent_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "alberta_framework.core.average_reward.time.time",
+        lambda: 1024.0,
+    )
+    adapter = _differential_switching()
+    runner = _switching_runner(
+        adapter,
+        SwitchingTwoStateConfig(phase_length=2),  # type: ignore[call-arg]
+        lifecycle_id="control.differential.no-clock-state",
+        horizon=1,
+    )
+
+    control_state = runner.init().agent_state
+
+    assert isinstance(control_state, ReferenceLifeControlState)
+    learner = control_state.agent_state
+    assert isinstance(learner, DifferentialSARSAState)
+    assert float(learner.birth_timestamp) == 0.0
+    assert float(learner.uptime_s) == 0.0
+    adapter.validate_state(control_state)
+
+    contaminated = learner.replace(  # type: ignore[attr-defined]
+        birth_timestamp=jnp.asarray(1.0, dtype=jnp.float32)
+    )
+    with pytest.raises(DecisionOwnershipError, match="timing metadata"):
+        adapter.validate_state(
+            dataclasses.replace(control_state, agent_state=contaminated)
+        )
+
+
 def test_discounted_sarsa_updates_on_continuing_unit_discount_outcome() -> None:
     rewarding = SwitchingTwoStateConfig(  # type: ignore[call-arg]
         phase_length=10,
