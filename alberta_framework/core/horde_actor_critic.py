@@ -724,7 +724,8 @@ class QHordeActorCriticAgent:
             else sampled_actor_grad_bias
         )
         actor_grad_weights = actor_grad_bias[:, None] * prev_obs[None, :]
-        actor_decay = effective_gamma * cfg.actor_lamda
+        # Credit retained within-episode eligibility before clearing terminal traces.
+        actor_decay = jnp.asarray(cfg.gamma, dtype=jnp.float32) * cfg.actor_lamda
         actor_trace_weights = (
             _skip_zero_scale(actor_decay, state.actor_trace_weights) + actor_grad_weights
         )
@@ -2590,7 +2591,8 @@ class NonlinearQHordeActorCriticAgent:
             cfg.actor_gradient_clip_norm,
         )
 
-        actor_decay = effective_gamma * cfg.actor_lamda
+        # Credit retained within-episode eligibility before clearing terminal traces.
+        actor_decay = jnp.asarray(cfg.gamma, dtype=jnp.float32) * cfg.actor_lamda
         n_hidden = len(cfg.hidden_sizes)
         new_trunk_traces: list[Array] = []
         for i in range(n_hidden):
