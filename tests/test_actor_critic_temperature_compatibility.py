@@ -93,3 +93,55 @@ def test_heating_preserves_main_policy_derivative_at_zero() -> None:
         return jax.nn.softmax(bias / temperature)
 
     np.testing.assert_array_equal(jax.jacrev(policy)(zero), jax.jacrev(direct)(zero))
+
+
+def test_cooling_overflow_reached_by_learning_keeps_next_transition() -> None:
+    agent = ActorCriticAgent(
+        ActorCriticConfig(
+            n_actions=2,
+            temperature=0.25,
+            actor_step_size=0.05,
+            actor_lamda=0.0,
+            critic_lamda=0.0,
+        )
+    )
+    observation = jnp.ones(1, dtype=jnp.float32)
+    state, action, _ = agent.start(agent.init(1, jr.key(220)), observation)
+    first = agent.update(state, jnp.float32(3e38), observation)
+    assert bool(first.update_applied)
+    assert int(first.state.step_count) == 1
+
+    # The finite reward learns large weights from zero initialization. The
+    # next feature changes from 1 to 2 after the policy has saturated; zero
+    # policy gradients do not prevent this larger logit at a new observation.
+    next_observation = 2.0 * observation
+    logits = first.state.actor_weights @ next_observation + first.state.actor_bias
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert not bool(jnp.all(jnp.isfinite(logits / agent.config.temperature)))
+    second = agent.update(first.state, jnp.float32(0.0), next_observation)
+    assert bool(second.update_applied)
+    assert int(second.state.step_count) == 2
+    for leaf in jax.tree.leaves(second.state):
+        if not jax.dtypes.issubdtype(leaf.dtype, jax.dtypes.prng_key):
+            assert bool(jnp.all(jnp.isfinite(leaf)))
+    np.testing.assert_array_equal(
+        agent.policy(second.state, next_observation), jax.nn.one_hot(action, 2)
+    )
+
+
+@pytest.mark.parametrize("temperature", [0.25, 2.0**-127, 2.0**-149])
+@pytest.mark.parametrize("disable_jit", [False, True])
+def test_cooling_recovery_supports_nan_debugger(temperature: float, disable_jit: bool) -> None:
+    agent = ActorCriticAgent(ActorCriticConfig(n_actions=2, temperature=temperature))
+    state = agent.init(1, jr.key(221))
+    observation = jnp.ones(1, dtype=jnp.float32)
+    for bias, expected in (
+        ([1e38, 2e38], [0.0, 1.0]),
+        ([2e38, 2e38], [0.5, 0.5]),
+        ([0.0, 0.0], [0.5, 0.5]),
+    ):
+        configured = state.replace(actor_bias=jnp.array(bias, dtype=jnp.float32))
+        with jax.disable_jit(disable_jit), jax.debug_nans(True):
+            actual = agent.policy(configured, observation)
+            actual.block_until_ready()
+        np.testing.assert_array_equal(actual, expected)
