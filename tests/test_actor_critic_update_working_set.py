@@ -24,8 +24,8 @@ from alberta_framework.core.actor_critic import (
 _INT32_MAX = 2**31 - 1
 _INT32_MIN = -(2**31)
 _OVERFLOW_FEATURE_DIM = 40_000_000
-_LAST_FIT_FEATURE_DIM = 35_791_392
-_FIRST_OVERFLOW_FEATURE_DIM = 35_791_393
+_LAST_FIT_FEATURE_DIM = 35_791_391
+_FIRST_OVERFLOW_FEATURE_DIM = 35_791_392
 _CONTINUOUS_LAST_FIT_FEATURE_DIM = 35_791_391
 _CONTINUOUS_FIRST_OVERFLOW_FEATURE_DIM = 35_791_392
 
@@ -43,7 +43,7 @@ def test_named_persist_and_width_still_fit_at_overflow() -> None:
     persist_bytes = _actor_critic_persistent_bytes(1, _OVERFLOW_FEATURE_DIM)
     working_set_bytes = _actor_critic_update_working_set_bytes(1, _OVERFLOW_FEATURE_DIM)
     extras_bytes = working_set_bytes - 3 * persist_bytes
-    assert persist_bytes == 800_000_032
+    assert persist_bytes == 800_000_036
     assert persist_bytes <= _INT32_MAX
     assert persist_bytes + extras_bytes <= _INT32_MAX
     assert 4 * _OVERFLOW_FEATURE_DIM <= _INT32_MAX
@@ -93,7 +93,7 @@ def test_persist_bound_still_fires_before_working_set() -> None:
 
 def test_legal_small_actor_critic_still_updates() -> None:
     persist_bytes = _actor_critic_persistent_bytes(1, 4)
-    assert persist_bytes == 112
+    assert persist_bytes == 116
     agent = ActorCriticAgent(ActorCriticConfig(n_actions=1))
     state = agent.init(4, jr.key(0))
     observation = jnp.zeros((4,), dtype=jnp.float32)
@@ -112,7 +112,7 @@ def test_continuous_named_persist_and_width_still_fit_at_overflow() -> None:
         1, _OVERFLOW_FEATURE_DIM
     )
     extras_bytes = working_set_bytes - 3 * persist_bytes
-    assert persist_bytes == 800_000_040
+    assert persist_bytes == 800_000_044
     assert persist_bytes <= _INT32_MAX
     assert persist_bytes + extras_bytes <= _INT32_MAX
     assert 4 * _OVERFLOW_FEATURE_DIM <= _INT32_MAX
@@ -161,7 +161,7 @@ def test_continuous_persist_bound_still_fires_before_working_set() -> None:
 
 def test_legal_small_continuous_actor_critic_still_updates() -> None:
     persist_bytes = _continuous_actor_critic_persistent_bytes(1, 5)
-    assert persist_bytes == 140
+    assert persist_bytes == 144
     agent = ContinuousActorCriticAgent(ContinuousActorCriticConfig(action_dim=1))
     state = agent.init(5, jr.key(0))
     observation = jnp.zeros((5,), dtype=jnp.float32)

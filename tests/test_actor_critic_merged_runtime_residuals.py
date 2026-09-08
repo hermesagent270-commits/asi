@@ -190,8 +190,8 @@ def test_scan_terminated_contract_accepts_jit_tracers(continuous: bool) -> None:
 
 
 def test_discrete_scan_working_set_formula_has_exact_byte_boundary() -> None:
-    # Two 52-byte carry trees plus an 880-byte reusable workspace.
-    last_legal = (2**31 - 1 - 984) // 38
+    # Two 56-byte carry trees plus a 912-byte reusable workspace.
+    last_legal = (2**31 - 1 - 1_024) // 38
     actor_critic_module._require_discrete_scan_resources(
         n_actions=1, feature_dim=1, num_steps=last_legal
     )
@@ -202,8 +202,8 @@ def test_discrete_scan_working_set_formula_has_exact_byte_boundary() -> None:
 
 
 def test_continuous_scan_working_set_formula_has_exact_byte_boundary() -> None:
-    # Two 60-byte carry trees plus a 976-byte reusable workspace.
-    last_legal = (2**31 - 1 - 1_096) // 42
+    # Two 64-byte carry trees plus a 1,008-byte reusable workspace.
+    last_legal = (2**31 - 1 - 1_136) // 42
     actor_critic_module._require_continuous_scan_resources(
         action_dim=1, feature_dim=1, num_steps=last_legal
     )
@@ -216,8 +216,8 @@ def test_continuous_scan_working_set_formula_has_exact_byte_boundary() -> None:
 @pytest.mark.parametrize(
     ("continuous", "exact_bytes"),
     [
-        (False, 4_410),
-        (True, 5_022),
+        (False, 4_450),
+        (True, 5_062),
     ],
 )
 def test_scan_working_set_formula_covers_multidimensional_terms(
