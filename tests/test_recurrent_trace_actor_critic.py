@@ -1399,15 +1399,17 @@ def test_adaptive_moments_persist_across_restart_and_checkpoint_resume() -> None
 def test_default_state_keeps_historical_positional_checkpoint_prefix() -> None:
     agent = RecurrentTraceActorCriticAgent(_small_config())
     state = agent.init(feature_dim=2, key=jr.key(351))
-    assert state._fields[-2:] == (
+    assert state._fields[-3:] == (
         "actor_second_moments",
         "critic_second_moments",
+        "previous_discount",
     )
 
-    reconstructed = type(state)(*state[:-2])
+    reconstructed = type(state)(*state[:-3])
     assert reconstructed.actor_second_moments is None
     assert reconstructed.critic_second_moments is None
-    _assert_tree_all_close(reconstructed, state)
+    assert reconstructed.previous_discount is None
+    _assert_tree_all_close(reconstructed.replace(previous_discount=state.previous_discount), state)
 
 
 def test_terminal_transition_updates_then_resets_all_temporal_traces() -> None:
@@ -2103,9 +2105,9 @@ def test_state_resource_budget_is_exact_and_init_preflights_before_rng(
     assert budget == {
         "parameter_scalars": 124,
         "sensitivity_scalars_per_network": 36,
-        "float32_state_scalars": 343,
-        "state_scalars": 349,
-        "state_nbytes": 1397,
+        "float32_state_scalars": 344,
+        "state_scalars": 350,
+        "state_nbytes": 1401,
     }
     state = RecurrentTraceActorCriticAgent(config).init(2, jr.key(2))
     leaves = jax.tree.leaves(state)
