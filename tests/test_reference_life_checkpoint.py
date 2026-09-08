@@ -11,7 +11,7 @@ import shutil
 import struct
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import jax
 import numpy as np
@@ -227,6 +227,59 @@ def test_quiescent_checkpoint_restores_exact_continuation(
     assert restored_final.transcript_sha256 == uninterrupted_state.transcript_sha256
     assert restored_final.environment_rng_cursor == uninterrupted_state.environment_rng_cursor
     assert restored_final.checkpoint_generation == 1
+
+
+class _RewardPair(NamedTuple):
+    first: float
+    second: float
+
+
+@pytest.mark.parametrize("container", [list, _RewardPair, tuple])
+def test_adopted_metric_container_checkpoint_is_typed_exact_or_rejected(
+    saved_case: tuple[ReferenceLifeRunner, ReferenceLifeState, ReferenceLifeState, Path],
+    tmp_path: Path,
+    container: Any,
+) -> None:
+    runner, _, barrier, _ = saved_case
+    owner = ReferenceLifeRunner.create(
+        agent_adapter=runner.agent_adapter,
+        environment_adapter=runner.environment_adapter,
+        lifecycle_id=runner.config.lifecycle_id,
+        seed=runner.config.seed,
+        max_accepted_events=runner.config.max_accepted_events,
+    )
+    values = barrier.metrics.phase_reward_sums
+    pair = container(*values) if container is _RewardPair else container(values)
+    destination = tmp_path / "checkpoint"
+    try:
+        metrics = dataclasses.replace(barrier.metrics, phase_reward_sums=pair)
+        adopted = owner.adopt_checkpoint_state(dataclasses.replace(barrier, metrics=metrics))
+    except ValueError:
+        assert container is not tuple  # Canonical decoder output must remain admissible.
+        assert owner.current_state is None
+        assert not destination.exists()
+        return
+
+    saved, checkpoint = save_reference_life_checkpoint(owner, adopted, destination)
+    restored_owner, restored = load_reference_life_checkpoint(checkpoint)
+    # JSON arrays are the wire representation; the decoder already creates tuples.
+    payload = json.loads((checkpoint / "life_state.json").read_text(encoding="ascii"))
+    for field in (
+        "phase_event_counts",
+        "phase_reward_sums",
+        "phase_regret_sums",
+        "first_completed_segment_reward",
+        "latest_completed_segment_reward",
+    ):
+        assert type(payload["metrics"][field]) is list
+        assert type(getattr(restored.metrics, field)) is tuple
+    # Main publishes list/NamedTuple-backed barriers but restores builtin tuples.
+    # This assertion fails at metrics.phase_reward_sums on both accepted bad inputs.
+    _assert_semantic_state_exact(saved, restored)
+    live_step = owner.step(saved)
+    restored_step = restored_owner.step(restored)
+    assert live_step.accepted and restored_step.accepted
+    _assert_typed_exact(live_step, restored_step)
 
 
 def _write_canonical_json(path: Path, value: dict[str, Any]) -> None:

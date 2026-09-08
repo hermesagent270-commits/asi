@@ -563,6 +563,8 @@ class ReferenceLifeMetricsState:
             self.first_completed_segment_reward,
             self.latest_completed_segment_reward,
         )
+        # The checkpoint decoder reconstructs builtin tuples from JSON arrays.
+        # Lists permit mutable aliases; tuple subclasses lose type identity on restore.
         if any(type(values) is not tuple for values in pair_containers):
             raise ValueError("phase and segment metrics must use tuple containers")
         if self.schema != REFERENCE_LIFE_METRICS_SCHEMA:
