@@ -665,20 +665,46 @@ class ActorCriticAgent:
         temperature = self._config.temperature
         if temperature == 1.0:
             return jax.nn.softmax(logits)
-        # A reciprocal of a very large temperature can flush to zero. Split
-        # the scale so neither the divisor nor its reciprocal is subnormal.
-        # For heating, scale before softmax centers: opposite-sign finite
-        # logits can have an unrepresentable difference before scaling.
-        mantissa, exponent = math.frexp(temperature)
-        scaled_logits = jnp.ldexp(logits, -exponent) / mantissa
         if temperature < 1.0:
-            # Preserve ordinary policy rounding; center only to recover finite
-            # logits that overflow during cooling. Nonfinite inputs stay invalid.
-            centered_logits = logits - jax.lax.stop_gradient(jnp.max(logits))
-            centered_scaled = jnp.ldexp(centered_logits, -exponent) / mantissa
-            overflowed = jnp.all(jnp.isfinite(logits)) & ~jnp.all(jnp.isfinite(scaled_logits))
-            scaled_logits = jnp.where(overflowed, centered_scaled, scaled_logits)
-        return jax.nn.softmax(scaled_logits)
+            # Select unscaled inputs so ordinary division and softmax retain
+            # their evaluation order, including inside the compiled update.
+            # Recover only an invalid finite-input policy.
+            policy = jax.nn.softmax(logits / temperature)
+            overflowed = jnp.all(jnp.isfinite(logits)) & ~jnp.all(jnp.isfinite(policy))
+            if temperature >= float(np.finfo(np.float32).tiny):
+                centered = logits - jax.lax.stop_gradient(jnp.max(logits))
+                selected = jnp.where(overflowed, centered, logits)
+                return jax.nn.softmax(selected / temperature)
+
+            mantissa, exponent = math.frexp(temperature)
+
+            def recover(values: Array) -> Array:
+                centered = values - jax.lax.stop_gradient(jnp.max(values))
+                # Multiplication keeps the derivative at zero, unlike ldexp.
+                # Split large powers so even a subnormal temperature never
+                # creates an infinite multiplier for a tied maximum logit.
+                first_shift = min(-exponent, 126)
+                scaled: Array = jax.lax.optimization_barrier(  # type: ignore[no-untyped-call]
+                    centered * math.ldexp(1.0, first_shift)
+                )
+                scaled = scaled * math.ldexp(1.0, -exponent - first_shift) / mantissa
+                return jax.nn.softmax(scaled)
+
+            return cast(
+                Array,
+                jax.lax.cond(
+                    overflowed, recover, lambda values: jax.nn.softmax(values / temperature), logits
+                ),
+            )
+        if temperature <= math.ldexp(1.0, 126):
+            return jax.nn.softmax(logits / temperature)
+        # Beyond this temperature a reciprocal can flush to zero. Keep both
+        # scale factors normal and prevent XLA from combining them. Scale
+        # before centering: opposite-sign logits can overflow a difference.
+        scaled_logits: Array = jax.lax.optimization_barrier(  # type: ignore[no-untyped-call]
+            logits * math.ldexp(1.0, -126)
+        )
+        return jax.nn.softmax(scaled_logits / math.ldexp(temperature, -126))
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def value(self, state: ActorCriticState, observation: Array) -> Float[Array, ""]:
