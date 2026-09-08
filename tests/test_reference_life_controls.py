@@ -797,6 +797,21 @@ def test_learning_control_state_validation_requires_exact_persistent_dtypes() ->
     assert isinstance(differential_state, ReferenceLifeControlState)
     differential_learner = differential_state.agent_state
     assert isinstance(differential_learner, DifferentialSARSAState)
+    for bad_discount in (
+        jnp.asarray(0, dtype=jnp.int32),
+        jnp.asarray([1.0], dtype=jnp.float32),
+        jnp.asarray(-0.1, dtype=jnp.float32),
+        jnp.asarray(1.1, dtype=jnp.float32),
+    ):
+        with pytest.raises(DecisionOwnershipError, match="previous_discount"):
+            differential.validate_state(
+                dataclasses.replace(
+                    differential_state,
+                    agent_state=differential_learner.replace(  # type: ignore[attr-defined]
+                        previous_discount=bad_discount
+                    ),
+                )
+            )
     bad_differential_words = differential_learner.replace(  # type: ignore[attr-defined]
         step_words=jnp.asarray((0, 0), dtype=jnp.int32)
     )

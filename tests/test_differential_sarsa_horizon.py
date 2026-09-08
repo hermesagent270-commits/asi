@@ -255,7 +255,7 @@ def test_schema_migration_and_counter_byte_accounting_are_strict() -> None:
     legacy = {
         field.name: getattr(state, field.name)
         for field in dataclasses.fields(state)  # type: ignore[arg-type]
-        if field.name != "step_words"
+        if field.name not in {"step_words", "previous_discount"}
     }
     legacy["step_count"] = jnp.asarray(19, dtype=jnp.int32)
     migrated = migrate_legacy_differential_sarsa_state(legacy)

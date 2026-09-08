@@ -1799,6 +1799,7 @@ class DifferentialSARSAReferenceAdapter(_BaseReferenceControlAdapter):
             ("average_reward", learner.average_reward, ()),
             ("last_observation", learner.last_observation, (self.config.observation_dim,)),
             ("epsilon", learner.epsilon, ()),
+            ("previous_discount", learner.previous_discount, ()),
         )
         for name, value, shape in expected_float_shapes:
             array = np.asarray(value)
@@ -1838,6 +1839,8 @@ class DifferentialSARSAReferenceAdapter(_BaseReferenceControlAdapter):
         epsilon = float(learner.epsilon)
         if not 0.0 <= epsilon <= 1.0:
             raise DecisionOwnershipError("differential-SARSA epsilon is invalid")
+        if not 0.0 <= float(learner.previous_discount) <= 1.0:
+            raise DecisionOwnershipError("differential-SARSA previous_discount is invalid")
 
     def _advance_payload(
         self,
