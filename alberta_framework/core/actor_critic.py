@@ -665,15 +665,19 @@ class ActorCriticAgent:
         temperature = self._config.temperature
         if temperature == 1.0:
             return jax.nn.softmax(logits)
-        if temperature < 1.0:
-            # Center before cooling can overflow finite logits to infinity.
-            logits = logits - jax.lax.stop_gradient(jnp.max(logits))
         # A reciprocal of a very large temperature can flush to zero. Split
         # the scale so neither the divisor nor its reciprocal is subnormal.
         # For heating, scale before softmax centers: opposite-sign finite
         # logits can have an unrepresentable difference before scaling.
         mantissa, exponent = math.frexp(temperature)
         scaled_logits = jnp.ldexp(logits, -exponent) / mantissa
+        if temperature < 1.0:
+            # Preserve ordinary policy rounding; center only to recover finite
+            # logits that overflow during cooling. Nonfinite inputs stay invalid.
+            centered_logits = logits - jax.lax.stop_gradient(jnp.max(logits))
+            centered_scaled = jnp.ldexp(centered_logits, -exponent) / mantissa
+            overflowed = jnp.all(jnp.isfinite(logits)) & ~jnp.all(jnp.isfinite(scaled_logits))
+            scaled_logits = jnp.where(overflowed, centered_scaled, scaled_logits)
         return jax.nn.softmax(scaled_logits)
 
     @functools.partial(jax.jit, static_argnums=(0,))
