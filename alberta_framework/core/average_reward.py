@@ -213,7 +213,7 @@ def _preflight_actor_state(
 
 def _preflight_differential_sarsa_state(n_actions: int, feature_dim: int) -> None:
     parameters = n_actions * feature_dim
-    float32_scalars = 2 * parameters + 2 * n_actions + feature_dim + 2
+    float32_scalars = 2 * parameters + 2 * n_actions + feature_dim + 3
     # Two int32 leaves, a two-word RNG key, and a two-word lifetime counter.
     scalar_count = float32_scalars + 6
     _require_state_resources(
@@ -271,7 +271,7 @@ def _preflight_differential_gtd_state(feature_dim: int) -> None:
     )
 
 
-DIFFERENTIAL_SARSA_STATE_SCHEMA = "alberta.differential-sarsa-state.v2"
+DIFFERENTIAL_SARSA_STATE_SCHEMA = "alberta.differential-sarsa-state.v3"
 DIFFERENTIAL_SARSA_LIFETIME_COUNTER_NBYTES = 12
 DIFFERENTIAL_SARSA_LIFETIME_COUNTER_DELTA_NBYTES = 8
 
@@ -1975,7 +1975,11 @@ class DifferentialSARSAConfig:
 
 @chex.dataclass(frozen=True)
 class DifferentialSARSAState:
-    """State for linear differential SARSA."""
+    """State for linear differential SARSA.
+
+    ``previous_discount`` is the discount entering the cached decision, retained
+    from the preceding accepted transition for eligibility credit.
+    """
 
     q_weights: Float[Array, "n_actions feature_dim"]
     q_bias: Float[Array, " n_actions"]
@@ -1988,6 +1992,7 @@ class DifferentialSARSAState:
     rng_key: Array
     step_count: Int[Array, ""]
     step_words: UInt[Array, " 2"]
+    previous_discount: Float[Array, ""]
     birth_timestamp: float = 0.0
     uptime_s: float = 0.0
 
@@ -2032,7 +2037,10 @@ class DifferentialSARSAAgent:
     + gamma_{t+1} Q(S_{t+1}, A_{t+1}) - Q(S_t, A_t)`.
     The same scalar TD error updates the reward-rate estimate and all Q
     parameters through an action-indexed accumulating trace whose prior value
-    continues by `gamma_{t+1} lambda`. The compatibility default
+    continues by `gamma_t lambda`, using the preceding accepted transition's
+    discount. The current `gamma_{t+1}` controls bootstrapping and is saved for
+    the next update, so a zero discount cuts subsequent credit after applying
+    this transition's reward. The compatibility default
     `gamma_{t+1}=1` retains the original continuing-stream behavior.
     """
 
@@ -2099,6 +2107,7 @@ class DifferentialSARSAAgent:
             rng_key=key,
             step_count=jnp.array(0, dtype=jnp.int32),
             step_words=jnp.zeros((2,), dtype=jnp.uint32),
+            previous_discount=jnp.asarray(1.0, dtype=jnp.float32),
             birth_timestamp=time.time(),
             uptime_s=0.0,
         )
@@ -2126,6 +2135,7 @@ class DifferentialSARSAAgent:
             ("average_reward", state.average_reward, ()),
             ("last_observation", state.last_observation, (feature_dim,)),
             ("epsilon", state.epsilon, ()),
+            ("previous_discount", state.previous_discount, ()),
         )
         for name, value, shape in float_contracts:
             array = jnp.asarray(value)
@@ -2161,6 +2171,9 @@ class DifferentialSARSAAgent:
             & jnp.isfinite(state.epsilon)
             & (state.epsilon >= 0.0)
             & (state.epsilon <= 1.0)
+            & jnp.isfinite(state.previous_discount)
+            & (state.previous_discount >= 0.0)
+            & (state.previous_discount <= 1.0)
             & (state.last_action >= 0)
             & (state.last_action < self._config.n_actions)
             & jnp.isfinite(jnp.asarray(state.birth_timestamp, dtype=jnp.float32))
@@ -2377,7 +2390,9 @@ class DifferentialSARSAAgent:
         # With use_bias=False the bias gradient is zeroed, so q_bias stays at
         # its zero init and the Q-function is purely feature-driven.
         grad_bias = action_mask * jnp.float32(cfg.use_bias)
-        trace_continuation = discount_s * lamda
+        # Credit follows the discount entering the current decision; the
+        # outgoing discount only affects the next bootstrap and trace carry.
+        trace_continuation = state.previous_discount * lamda
         traces = trace_continuation * state.q_trace_weights + grad_weights
         bias_traces = trace_continuation * state.q_trace_bias + grad_bias
         new_step_count = _saturating_int32_increment(state.step_count)
@@ -2396,6 +2411,7 @@ class DifferentialSARSAAgent:
             q_bias=state.q_bias + alpha * td_error * bias_traces,
             q_trace_weights=traces,
             q_trace_bias=bias_traces,
+            previous_discount=discount_s,
             average_reward=new_average_reward,
             last_observation=next_observation_f,
             last_action=selected_next_action,
@@ -2536,8 +2552,16 @@ def measure_differential_sarsa_state_nbytes(state: DifferentialSARSAState) -> in
 
 def migrate_legacy_differential_sarsa_state(
     legacy_state: Any,
+    *,
+    previous_discount: float | None = None,
 ) -> DifferentialSARSAState:
-    """Migrate a pre-v2 state only when its int32 clock is unambiguous."""
+    """Migrate an exact v1/v2 payload with unambiguous clock and trace carry.
+
+    Active legacy traces require the preceding accepted discount from the
+    caller's transition record; it cannot be recovered from the old state.
+    Zero traces need no history and use a neutral discount of one. Migration
+    does not repair weights learned with the old discount indexing.
+    """
 
     if isinstance(legacy_state, Mapping):
         fields = dict(legacy_state)
@@ -2552,8 +2576,11 @@ def migrate_legacy_differential_sarsa_state(
         field.name
         for field in dataclasses.fields(DifferentialSARSAState)  # type: ignore[arg-type]
     }
-    legacy_names = current_names - {"step_words"}
+    legacy_names = current_names - {"previous_discount"}
     supplied_names = set(fields)
+    has_step_words = "step_words" in supplied_names
+    if not has_step_words:
+        legacy_names = legacy_names - {"step_words"}
     if supplied_names != legacy_names:
         missing = sorted(legacy_names - supplied_names)
         extra = sorted(supplied_names - legacy_names)
@@ -2567,7 +2594,23 @@ def migrate_legacy_differential_sarsa_state(
     step = int(step_count)
     if step < 0:
         raise ValueError("negative legacy differential SARSA step_count indicates wrap")
-    if step >= _INT32_MAX:
+    if not has_step_words and step >= _INT32_MAX:
         raise ValueError("saturated legacy differential SARSA step_count is ambiguous")
-    fields["step_words"] = jnp.asarray((0, step), dtype=jnp.uint32)
+    if has_step_words:
+        _checked_lifetime_words_increment(fields["step_words"])
+        if not bool(_lifetime_counter_valid(fields["step_words"], step_count)):
+            raise ValueError("legacy differential SARSA exact counter is inconsistent")
+    else:
+        fields["step_words"] = jnp.asarray((0, step), dtype=jnp.uint32)
+    if previous_discount is None:
+        if any(
+            not bool(jnp.all(jnp.asarray(fields[name]) == 0.0))
+            for name in ("q_trace_weights", "q_trace_bias")
+        ):
+            raise ValueError("active legacy traces require an explicit previous_discount")
+        previous_discount = 1.0
+    fields["previous_discount"] = jnp.asarray(
+        validated_float32_scalar("previous_discount", previous_discount, lower=0.0, upper=1.0),
+        dtype=jnp.float32,
+    )
     return DifferentialSARSAState(**fields)

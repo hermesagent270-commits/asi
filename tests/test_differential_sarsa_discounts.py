@@ -45,7 +45,7 @@ def test_differential_sarsa_discount_hand_calculation(
     expected_weight_traces: list[list[float]],
     expected_bias_traces: list[float],
 ) -> None:
-    """Discount scales both the next-action bootstrap and old trace."""
+    """Equal incoming/outgoing discounts retain the constant-discount formula."""
     agent = DifferentialSARSAAgent(
         DifferentialSARSAConfig(
             n_actions=2,
@@ -69,6 +69,7 @@ def test_differential_sarsa_discount_hand_calculation(
         average_reward=jnp.array(0.25, dtype=jnp.float32),
         last_observation=jnp.array([1.0, 2.0], dtype=jnp.float32),
         last_action=jnp.array(0, dtype=jnp.int32),
+        previous_discount=jnp.array(discount, dtype=jnp.float32),
     )
 
     result = agent.update(
