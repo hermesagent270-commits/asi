@@ -553,8 +553,10 @@ class HordeLearner:
 
         This is the same TD update as :meth:`update`, except callers supply the
         effective discount vector for this transition. It lets control adapters
-        zero the value head at episode boundaries while keeping the Horde's
-        fixed GVF metadata and per-head trace decay intact.
+        terminate the value head at episode boundaries while keeping the
+        Horde's fixed GVF metadata and per-head trace decay intact. An accepted
+        zero-discount update applies its reward through the current eligibility,
+        then clears that head's temporal traces before the next episode.
 
         Args:
             state: Current state.
@@ -604,8 +606,29 @@ class HordeLearner:
         )
         head_updates_applied = head_inputs_valid & update_applied
 
+        # Apply terminal credit before dropping eligibility from the finished
+        # episode. Inactive/rejected heads retain their state; continuing heads
+        # retain their traces. Zero-decay heads cannot carry temporal credit and
+        # keep their ordinary-update state exactly.
+        head_traces = tuple(
+            tuple(
+                jnp.where(
+                    head_updates_applied[index] & (discounts[index] == 0.0),
+                    jnp.zeros_like(trace),
+                    trace,
+                )
+                for trace in traces
+            )
+            if float(np.float32(demon.gamma) * np.float32(demon.lamda)) != 0.0
+            else traces
+            for index, (demon, traces) in enumerate(
+                zip(self._horde_spec.demons, result.state.head_traces, strict=True)
+            )
+        )
+        proposed_state = result.state.replace(head_traces=head_traces)
+
         return HordeUpdateResult(  # type: ignore[call-arg]
-            state=jax.lax.cond(update_applied, lambda: result.state, lambda: state),
+            state=jax.lax.cond(update_applied, lambda: proposed_state, lambda: state),
             predictions=jnp.where(
                 update_applied,
                 jnp.where(
