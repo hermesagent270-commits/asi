@@ -161,10 +161,12 @@ def _require_horde_ac_matching_length(name: str, value: object, *, expected: int
         raise ValueError(f"{name} must share the same leading length as rewards")
 
 
-def _linear_actor_resources(n_actions: int, feature_dim: object) -> dict[str, int]:
+def _linear_actor_resources(
+    n_actions: int, feature_dim: object, *, discount_history: bool = False
+) -> dict[str, int]:
     width = _require_int32("feature_dim", feature_dim, minimum=1)
     parameters = n_actions * (width + 1)
-    float32_state = 2 * parameters + width
+    float32_state = 2 * parameters + width + int(discount_history)
     logical_state = float32_state + 4
     return _check_actor_resources(
         {
@@ -193,7 +195,7 @@ def _nonlinear_actor_resources(
     _check_actor_resources({"head_product": head_product})
     parameters += head_product + n_actions
     tensor_count = 2 * (len(hidden_sizes) + 1)
-    float32_state = 5 * parameters + 2 * tensor_count + 1 + width
+    float32_state = 5 * parameters + 2 * tensor_count + 2 + width
     logical_state = float32_state + 4
     return _check_actor_resources(
         {
@@ -331,11 +333,11 @@ class HordeActorCriticConfig:
         object.__setattr__(self, "actor_lamda", actor_lamda)
         object.__setattr__(self, "temperature", temperature)
         object.__setattr__(self, "actor_td_error_clip", actor_td_error_clip)
-        _linear_actor_resources(self.n_actions, 1)
+        _linear_actor_resources(self.n_actions, 1, discount_history=True)
 
     def actor_resource_budget(self, feature_dim: object) -> dict[str, int]:
         """Return the exact actor-only state budget for an input width."""
-        return _linear_actor_resources(self.n_actions, feature_dim)
+        return _linear_actor_resources(self.n_actions, feature_dim, discount_history=True)
 
     def to_config(self) -> dict[str, Any]:
         """Serialize this configuration to a dictionary."""
@@ -357,6 +359,7 @@ class HordeActorCriticState:
         actor_bias: Policy bias vector, shape ``(n_actions,)``.
         actor_trace_weights: Eligibility trace for actor weights.
         actor_trace_bias: Eligibility trace for actor bias.
+        previous_discount: Last accepted value transition discount for actor eligibility.
         critic_state: Underlying Horde learner state.
         last_observation: Previous observation ``s_t``.
         last_action: Previous action ``a_t``.
@@ -368,6 +371,7 @@ class HordeActorCriticState:
     actor_bias: Float[Array, " n_actions"]
     actor_trace_weights: Float[Array, "n_actions feature_dim"]
     actor_trace_bias: Float[Array, " n_actions"]
+    previous_discount: Float[Array, ""]
     critic_state: MultiHeadMLPState
     last_observation: Float[Array, " feature_dim"]
     last_action: Int[Array, ""]
@@ -906,6 +910,7 @@ class HordeActorCriticAgent:
             actor_bias=zeros_bias,
             actor_trace_weights=zeros_actor,
             actor_trace_bias=zeros_bias,
+            previous_discount=jnp.array(1.0, dtype=jnp.float32),
             critic_state=self._critic.init(feature_dim, critic_key),
             last_observation=jnp.zeros((feature_dim,), dtype=jnp.float32),
             last_action=jnp.array(-1, dtype=jnp.int32),
@@ -996,11 +1001,14 @@ class HordeActorCriticAgent:
             auxiliary_cumulants: Optional cumulants for all non-value heads,
                 ordered by Horde head index with the value head removed.
             discount: Optional scalar per-transition value-head discount. When
-                omitted, the value head's configured demon gamma is used.
+                omitted, the value head's configured demon gamma is used. This
+                outgoing discount is saved for the next accepted actor update.
 
         Returns:
             ``HordeActorCriticUpdateResult`` with actor and critic metrics.
         """
+        if state.previous_discount.shape != () or state.previous_discount.dtype != jnp.float32:
+            raise ValueError("state.previous_discount must be a scalar float32")
         cfg = self._config
         prev_obs = state.last_observation
         action_valid = (state.last_action >= 0) & (state.last_action < cfg.n_actions)
@@ -1051,7 +1059,9 @@ class HordeActorCriticAgent:
         one_hot = jax.nn.one_hot(safe_last_action, cfg.n_actions, dtype=jnp.float32)
         actor_grad_bias = (one_hot - old_policy) / cfg.temperature
         actor_grad_weights = actor_grad_bias[:, None] * prev_obs[None, :]
-        actor_decay = value_discount * cfg.actor_lamda
+        # Incoming gamma_t retains earlier credit; outgoing gamma_{t+1}
+        # controls bootstrapping and clears traces only after reward learning.
+        actor_decay = state.previous_discount * cfg.actor_lamda
         actor_trace_weights = (
             _skip_zero_scale(actor_decay, state.actor_trace_weights) + actor_grad_weights
         )
@@ -1079,6 +1089,7 @@ class HordeActorCriticAgent:
             actor_trace_bias=jnp.where(
                 carry_traces, actor_trace_bias, jnp.zeros_like(actor_trace_bias)
             ),
+            previous_discount=value_discount,
             critic_state=critic_result.state,
             step_count=_saturating_int32_counter_increment(state.step_count),
         )
@@ -1095,6 +1106,8 @@ class HordeActorCriticAgent:
             & jnp.isfinite(value_discount)
             & (value_discount >= 0.0)
             & (value_discount <= 1.0)
+            & (state.previous_discount >= 0.0)
+            & (state.previous_discount <= 1.0)
             & jnp.all(jnp.isfinite(old_policy))
             & jnp.isfinite(value)
             & ((value_discount == 0.0) | jnp.isfinite(next_value))
@@ -1513,6 +1526,8 @@ class NonlinearHordeActorCriticState:
         actor_head_opt_b: Optimizer state for ``actor_head_b``.
         actor_td_error_normalizer: EMA scale for actor-only TD-error
             normalization.
+        previous_discount: Last accepted value transition discount for actor
+            eligibility. The shared nonlinear Q actor leaves this field unused.
         critic_state: Underlying Horde learner state.
         last_observation: Previous observation for the next update call.
         last_action: Previous action index.
@@ -1530,6 +1545,7 @@ class NonlinearHordeActorCriticState:
     actor_head_opt_w: AutostepParamState
     actor_head_opt_b: AutostepParamState
     actor_td_error_normalizer: Float[Array, ""]
+    previous_discount: Float[Array, ""]
     critic_state: MultiHeadMLPState
     last_observation: Float[Array, " feature_dim"]
     last_action: Int[Array, ""]
@@ -1729,6 +1745,7 @@ class NonlinearHordeActorCriticAgent:
             actor_head_opt_w=self._actor_optimizer.init_for_shape(actor_head_w.shape),
             actor_head_opt_b=self._actor_optimizer.init_for_shape(actor_head_b.shape),
             actor_td_error_normalizer=jnp.array(0.0, dtype=jnp.float32),
+            previous_discount=jnp.array(1.0, dtype=jnp.float32),
             critic_state=self._critic.init(feature_dim, critic_key),
             last_observation=jnp.zeros((feature_dim,), dtype=jnp.float32),
             last_action=jnp.array(-1, dtype=jnp.int32),
@@ -1812,11 +1829,15 @@ class NonlinearHordeActorCriticAgent:
             reward: Scalar reward for the value head.
             observation: Next observation.
             auxiliary_cumulants: Optional cumulants for non-value heads.
-            discount: Optional per-transition value-head discount.
+            discount: Optional outgoing value-head discount, saved for the
+                next accepted actor update; prior eligibility uses the last
+                accepted transition discount.
 
         Returns:
             :class:`NonlinearHordeActorCriticUpdateResult`.
         """
+        if state.previous_discount.shape != () or state.previous_discount.dtype != jnp.float32:
+            raise ValueError("state.previous_discount must be a scalar float32")
         cfg = self._config
         prev_obs = state.last_observation
         action_valid = (state.last_action >= 0) & (state.last_action < cfg.n_actions)
@@ -1895,7 +1916,9 @@ class NonlinearHordeActorCriticAgent:
             cfg.actor_gradient_clip_norm,
         )
 
-        actor_decay = value_discount * cfg.actor_lamda
+        # Incoming gamma_t retains earlier credit; outgoing gamma_{t+1}
+        # controls bootstrapping and clears traces only after reward learning.
+        actor_decay = state.previous_discount * cfg.actor_lamda
         n_hidden = len(cfg.hidden_sizes)
 
         new_trunk_traces: list[Array] = []
@@ -2013,6 +2036,7 @@ class NonlinearHordeActorCriticAgent:
             actor_head_opt_w=new_head_opt_w,
             actor_head_opt_b=new_head_opt_b,
             actor_td_error_normalizer=actor_td_error_normalizer,
+            previous_discount=value_discount,
             critic_state=critic_result.state,
             step_count=_saturating_int32_counter_increment(state.step_count),
         )
@@ -2029,6 +2053,8 @@ class NonlinearHordeActorCriticAgent:
             & jnp.isfinite(value_discount)
             & (value_discount >= 0.0)
             & (value_discount <= 1.0)
+            & (state.previous_discount >= 0.0)
+            & (state.previous_discount <= 1.0)
             & jnp.isfinite(value)
             & ((value_discount == 0.0) | jnp.isfinite(next_value))
             & jnp.isfinite(td_error)
@@ -2438,6 +2464,7 @@ class NonlinearQHordeActorCriticAgent:
             actor_head_opt_w=self._actor_optimizer.init_for_shape(actor_head_w.shape),
             actor_head_opt_b=self._actor_optimizer.init_for_shape(actor_head_b.shape),
             actor_td_error_normalizer=jnp.array(0.0, dtype=jnp.float32),
+            previous_discount=jnp.array(1.0, dtype=jnp.float32),
             critic_state=self._critic.init(feature_dim, critic_key),
             last_observation=jnp.zeros((feature_dim,), dtype=jnp.float32),
             last_action=jnp.array(-1, dtype=jnp.int32),
