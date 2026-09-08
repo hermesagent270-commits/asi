@@ -19,8 +19,9 @@ the critic-form x actor-form design space:
 
 All actors implement AC(lambda), ``theta += alpha * delta * e``, with an
 eligibility trace over log-policy gradients (Sutton & Barto 2018, Ch. 13).
-The critic update is always delegated unchanged to ``HordeLearner.update()``,
-preserving per-head trace decay and auxiliary demons.
+The critic delegates learning to ``HordeLearner``, preserving per-head trace
+decay and auxiliary demons. The state-value adapters clear their value head's
+temporal eligibility after applying an accepted terminal reward.
 
 References:
     Sutton & Barto (2018). "Reinforcement Learning: An Introduction,"
@@ -228,6 +229,31 @@ def _commit_scan_safe_actor_state(
 def _skip_zero_scale(scale: Array, value: Array) -> Array:
     """Return 0 when ``scale`` is 0 so a 0*inf product cannot form."""
     return jnp.where(scale == 0.0, jnp.zeros_like(value), scale * value)
+
+
+def _clear_terminal_value_trace(
+    critic: HordeLearner,
+    result: HordeUpdateResult,
+    value_index: int,
+    discount: Array,
+) -> HordeUpdateResult:
+    """Apply terminal credit before clearing the value head's eligibility.
+
+    The adapter owns this boundary: generic Horde zero discounts can also
+    suppress bootstrap for externally computed SARSA targets. Auxiliary heads
+    continue, and zero-decay heads retain their ordinary instantaneous traces.
+    """
+    demon = critic.horde_spec.demons[value_index]
+    if float(np.float32(demon.gamma) * np.float32(demon.lamda)) == 0.0:
+        return result
+    terminal = (discount == 0.0) & result.head_updates_applied[value_index]
+    head_traces = list(result.state.head_traces)
+    head_traces[value_index] = tuple(
+        jnp.where(terminal, jnp.zeros_like(trace), trace)
+        for trace in head_traces[value_index]
+    )
+    state = result.state.replace(head_traces=tuple(head_traces))  # type: ignore[attr-defined]
+    return cast(HordeUpdateResult, result.replace(state=state))  # type: ignore[attr-defined]
 
 
 def _rollback_critic_result(
@@ -1041,6 +1067,9 @@ class HordeActorCriticAgent:
                 observation,
                 discounts,
             )
+            critic_result = _clear_terminal_value_trace(
+                self._critic, critic_result, cfg.value_head_index, value_discount
+            )
         td_error = critic_result.td_errors[cfg.value_head_index]
         actor_td_error = (
             td_error
@@ -1847,6 +1876,9 @@ class NonlinearHordeActorCriticAgent:
             discounts = self._critic.horde_spec.gammas.at[idx].set(value_discount)
             critic_result = self._critic.update_with_discounts(
                 state.critic_state, prev_obs, cumulants, observation, discounts
+            )
+            critic_result = _clear_terminal_value_trace(
+                self._critic, critic_result, idx, value_discount
             )
         td_error = critic_result.td_errors[idx]
         actor_td_error = (

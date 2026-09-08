@@ -10,7 +10,10 @@ from alberta_framework import DemonType, GVFSpec, HordeLearner, create_horde_spe
 from alberta_framework.core.horde_actor_critic import (
     HordeActorCriticAgent,
     HordeActorCriticConfig,
+    NonlinearHordeActorCriticAgent,
+    NonlinearHordeActorCriticConfig,
     run_horde_actor_critic_from_arrays,
+    run_nonlinear_horde_actor_critic_from_arrays,
 )
 from alberta_framework.core.types import TraceMode
 
@@ -49,23 +52,39 @@ def _zero_params(state):
     )
 
 
-@pytest.mark.parametrize("value_index", [0, 1])
-@pytest.mark.parametrize("trace_mode", [TraceMode.ACCUMULATING, TraceMode.REPLACING])
-def test_public_runner_does_not_credit_a_finished_episode(value_index, trace_mode):
-    critic = _critic(trace_mode)
-    agent = HordeActorCriticAgent(
+def _agent(critic, value_index, nonlinear):
+    if nonlinear:
+        return NonlinearHordeActorCriticAgent(
+            NonlinearHordeActorCriticConfig(
+                n_actions=1, actor_lamda=0.0, value_head_index=value_index, hidden_sizes=(4,)
+            ),
+            critic,
+        )
+    return HordeActorCriticAgent(
         HordeActorCriticConfig(n_actions=1, actor_lamda=0.0, value_head_index=value_index),
         critic,
     )
+
+
+@pytest.mark.parametrize("nonlinear", [False, True])
+@pytest.mark.parametrize("value_index", [0, 1])
+@pytest.mark.parametrize("trace_mode", [TraceMode.ACCUMULATING, TraceMode.REPLACING])
+def test_public_runner_does_not_credit_a_finished_episode(value_index, trace_mode, nonlinear):
+    critic = _critic(trace_mode)
+    agent = _agent(critic, value_index, nonlinear)
     state = agent.init(2, jr.key(200))
     state = state.replace(critic_state=_zero_params(state.critic_state))
-    result = run_horde_actor_critic_from_arrays(
+    runner = (
+        run_nonlinear_horde_actor_critic_from_arrays
+        if nonlinear
+        else run_horde_actor_critic_from_arrays
+    )
+    result = runner(
         agent,
         state,
         observations=jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]),
         rewards=jnp.array([0.0, 1.0, 1.0]),
         next_observations=jnp.array([[0.0, 1.0], [0.0, 0.0], [0.0, 0.0]]),
-        actions=jnp.zeros(3, dtype=jnp.int32),
         auxiliary_cumulants=jnp.array([[0.0], [0.0], [1.0]]),
         discounts=jnp.array([0.9, 0.0, 0.0]),
     )
@@ -89,6 +108,40 @@ def test_public_runner_does_not_credit_a_finished_episode(value_index, trace_mod
         atol=1e-8,
     )
     assert bool(jnp.any(result.state.critic_state.head_params.weights[aux_index] != 0))
+
+
+@pytest.mark.parametrize("nonlinear", [False, True])
+@pytest.mark.parametrize("failure", ["reward", "discount", "observation", "action"])
+def test_rejected_boundary_keeps_credit_for_a_valid_retry(nonlinear, failure):
+    agent = _agent(_critic(), 0, nonlinear)
+    state = agent.init(2, jr.key(203))
+    state = state.replace(
+        critic_state=_zero_params(state.critic_state),
+        last_observation=jnp.array([1.0, 0.0]),
+        last_action=jnp.array(0, dtype=jnp.int32),
+    )
+    warm = agent.update(state, jnp.array(0.0), jnp.array([0.0, 1.0]), discount=0.9).state
+    reward = jnp.array(jnp.nan if failure == "reward" else 1.0)
+    discount = jnp.array(jnp.nan if failure == "discount" else 0.0)
+    observation = jnp.array([jnp.nan, 0.0]) if failure == "observation" else jnp.zeros(2)
+    if failure == "action":
+        warm = warm.replace(last_action=jnp.array(2, dtype=jnp.int32))
+    rejected = agent.update(warm, reward, observation, discount=discount)
+    assert not bool(rejected.update_applied)
+    assert not bool(jnp.any(rejected.critic_result.head_updates_applied))
+    chex.assert_trees_all_equal(
+        rejected.state.replace(rng_key=jr.key_data(rejected.state.rng_key)),
+        warm.replace(rng_key=jr.key_data(warm.rng_key)),
+    )
+    repaired = rejected.state.replace(last_action=jnp.array(0, dtype=jnp.int32))
+    retry = agent.update(repaired, jnp.array(1.0), jnp.zeros(2), discount=0.0)
+    assert bool(retry.update_applied)
+    np.testing.assert_allclose(
+        retry.state.critic_state.head_params.weights[0], [[0.072, 0.1]], rtol=1e-6, atol=1e-8
+    )
+    for trace in retry.state.critic_state.head_traces[0]:
+        np.testing.assert_array_equal(trace, jnp.zeros_like(trace))
+    chex.assert_trees_all_equal(retry.critic_result.state, retry.state.critic_state)
 
 
 @pytest.mark.parametrize("failure", ["inactive", "cumulant", "discount", "observation"])
