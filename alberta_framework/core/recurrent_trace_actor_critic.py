@@ -194,6 +194,9 @@ class RecurrentTraceActorCriticState(NamedTuple):
     started: Array
     actor_second_moments: RTUNetworkParameters | None = None
     critic_second_moments: RTUNetworkParameters | None = None
+    # Appended to preserve the historical positional state prefix. Legacy
+    # states without this cursor assume the configured constant discount.
+    previous_discount: Array | None = None
 
     def replace(self, **changes: Any) -> Self:
         """Return a state with selected fields replaced, like ``chex.dataclass``."""
@@ -337,7 +340,7 @@ def _preflight_state_resources(
         + 2 * sensitivity_scalars * (2 if config.rtrl_taylor_correction else 1)
         + 4 * config.hidden_size
         + 4 * width
-        + 3
+        + 4
     )
     # Two statistics counters, last action, typed key, step counter, and the
     # started flag are six logical array elements. The typed key occupies two
@@ -1923,6 +1926,7 @@ class RecurrentTraceActorCriticAgent:
             rng_key=policy_key,
             step_count=jnp.asarray(0, dtype=jnp.int32),
             started=jnp.asarray(False),
+            previous_discount=jnp.asarray(1.0, dtype=jnp.float32),
         )
 
     def _network_output(
@@ -2241,6 +2245,7 @@ class RecurrentTraceActorCriticAgent:
             last_normalized_observation=normalized,
             last_observation=jnp.asarray(observation, dtype=jnp.float32),
             started=jnp.asarray(True),
+            previous_discount=jnp.asarray(1.0, dtype=jnp.float32),
         )
         action, key, probabilities = self.select_action(advanced)
         return (
@@ -2324,6 +2329,12 @@ class RecurrentTraceActorCriticAgent:
         that supplies none of them is continuing even when configured
         ``gamma`` is zero.
 
+        Eligibility decays by the discount retained from the preceding
+        accepted transition, while this call's discount controls the TD
+        bootstrap. Boundaries clear eligibility after crediting their reward.
+        Legacy positional states with no retained discount assume configured
+        ``gamma``; their old variable-discount history cannot be reconstructed.
+
         Examples:
             A true environment termination can use ``terminated=True``.
             A time-limit truncation can use
@@ -2400,6 +2411,14 @@ class RecurrentTraceActorCriticAgent:
         check_dynamic_started: bool,
     ) -> RecurrentTraceActorCriticUpdateResult:
         """Validate one public transition and dispatch the compiled kernel."""
+        state = state.replace(
+            previous_discount=_validated_scalar(
+                "state.previous_discount",
+                self._config.gamma if state.previous_discount is None else state.previous_discount,
+                boolean=False,
+                unit_interval=True,
+            ).astype(jnp.float32)
+        )
         started = state.started
         if started.shape != ():
             raise ValueError("state.started must be scalar-shaped")
@@ -2617,14 +2636,11 @@ class RecurrentTraceActorCriticAgent:
         td_error = normalized_reward + bootstrap - value
         _, actor_gradient = self._actor_gradient(state, td_error)
 
-        # The terminating reward must still credit traces accumulated within
-        # the episode.  Stream AC(lambda) therefore applies gamma*lambda first
-        # and clears the stored trace only after the terminal update.
-        trace_discount = jnp.where(
-            boundary,
-            jnp.asarray(self._config.gamma, dtype=transition_discount.dtype),
-            transition_discount,
-        )
+        # The trace uses gamma_t, entering the current state; the bootstrap
+        # above uses gamma_{t+1}, leaving it. Terminal and truncation rewards
+        # still credit the old trace before its independent boundary reset.
+        assert state.previous_discount is not None
+        trace_discount = state.previous_discount
         actor_decay = trace_discount * self._config.actor_lamda
         critic_decay = trace_discount * self._config.critic_lamda
         actor_traces = cast(
@@ -2822,10 +2838,13 @@ class RecurrentTraceActorCriticAgent:
             last_normalized_observation=stored_observation,
             last_observation=stored_raw_observation,
             step_count=step_count,
+            previous_discount=jnp.where(boundary, 1.0, transition_discount),
         )
         candidate_applied = (
             actor_update_applied
             & critic_update_applied
+            & (trace_discount >= 0.0)
+            & (trace_discount <= 1.0)
             & _floating_tree_is_finite(
                 state.replace(
                     reward_statistics=state.reward_statistics._replace(
