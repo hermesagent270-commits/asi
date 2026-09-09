@@ -33,6 +33,7 @@ from alberta_framework.core.multi_head_learner import (
     AnyOptimizer,
     MultiHeadMLPLearner,
     MultiHeadMLPState,
+    _multi_head_update_working_set_bytes,
 )
 from alberta_framework.core.normalizers import (
     EMANormalizerState,
@@ -227,6 +228,24 @@ def _extract_mean_step_size(opt_state: Any) -> Array:
     if hasattr(opt_state, "step_size"):
         return jnp.asarray(opt_state.step_size, dtype=jnp.float32)
     return jnp.array(0.0, dtype=jnp.float32)
+
+
+@chex.dataclass(frozen=True)
+class OffPolicyHordeState(MultiHeadMLPState):
+    """Multi-head state with each demon's last accepted outgoing discount.
+
+    Head traces describe the just-consumed observation, before its outgoing
+    discount. The next accepted update uses that saved discount to carry
+    credit into the new observation. Inactive or rejected heads retain both
+    their trace and discount. Fresh zero traces use an initial discount of 1.
+
+    Legacy ``MultiHeadMLPState`` values lack this history and cannot resume
+    directly. Adopt them explicitly with ``OffPolicyHordeState(**dict(old),
+    previous_discounts=known_history)`` using a float32 vector from the last
+    accepted transition of each head. This does not repair earlier mislearning.
+    """
+
+    previous_discounts: Float[Array, " n_demons"] | None = None
 
 
 @chex.dataclass(frozen=True)
@@ -462,9 +481,22 @@ class OffPolicyHordeLearner:
         """Eligibility-trace ratio clip."""
         return self._trace_ratio_clip
 
-    def init(self, feature_dim: int, key: Array) -> MultiHeadMLPState:
-        """Initialize learner state."""
-        return self._learner.init(feature_dim, key)
+    def init(self, feature_dim: int, key: Array) -> OffPolicyHordeState:
+        """Initialize zero eligibility and explicit per-demon discount history."""
+        feature_dim = _require_int32("feature_dim", feature_dim, minimum=1)
+        # Extend the wrapped learner's source/proposed/committed envelope by
+        # the three simultaneously live copies of the new float32 vector.
+        if (
+            _multi_head_update_working_set_bytes(
+                self.n_demons, self._hidden_sizes, feature_dim
+            ) + 12 * self.n_demons > _INT32_MAX
+        ):
+            raise ValueError("off-policy Horde update working set bytes must fit signed int32")
+        base = self._learner.init(feature_dim, key)
+        return OffPolicyHordeState(
+            **dict(cast(Mapping[str, Any], base)),
+            previous_discounts=jnp.ones(self.n_demons, dtype=jnp.float32),
+        )  # type: ignore[call-arg]
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def predict(self, state: MultiHeadMLPState, observation: Array) -> Array:
@@ -542,8 +574,26 @@ class OffPolicyHordeLearner:
         rhos: Array,
         discounts: Array,
     ) -> OffPolicyHordeUpdateResult:
-        """Update using explicit ratios and transition discounts."""
+        """Use outgoing discounts for bootstrap and saved incoming ones for traces.
+
+        Missing or noncanonical discount history requires explicit state
+        adoption; invalid numeric history rejects the whole transaction.
+        """
         n_demons = self.n_demons
+        if not isinstance(state, OffPolicyHordeState):
+            raise ValueError("OffPolicyHordeState with previous_discounts is required")
+        previous_discounts = state.previous_discounts
+        if (
+            not isinstance(previous_discounts, (Array, jax.core.Tracer))
+            or previous_discounts.shape != (n_demons,)
+            or previous_discounts.dtype != jnp.float32
+        ):
+            raise ValueError("previous_discounts must be a float32 vector of length n_demons")
+        history_valid = jnp.all(
+            jnp.isfinite(previous_discounts)
+            & (previous_discounts >= 0.0)
+            & (previous_discounts <= 1.0)
+        )
         replacing = self._trace_mode == TraceMode.REPLACING
         counter_status = self._learner._counter_status(state)
 
@@ -580,7 +630,7 @@ class OffPolicyHordeLearner:
             )
         lamdas = self._horde_spec.lamdas
         head_decay_unused = jnp.all(
-            (discounts == 0.0) | (jnp.asarray(lamdas, dtype=jnp.float32) == 0.0)
+            (previous_discounts == 0.0) | (jnp.asarray(lamdas, dtype=jnp.float32) == 0.0)
         )
         checked_state = checked_state.replace(  # type: ignore[attr-defined]
             head_traces=tuple(
@@ -591,7 +641,7 @@ class OffPolicyHordeLearner:
                 for old_w, old_b in state.head_traces
             )
         )
-        source_state_finite = _floating_tree_is_finite(checked_state)
+        source_state_finite = _floating_tree_is_finite(checked_state) & history_valid
         global_inputs_valid = jnp.all(jnp.isfinite(observation))
         next_observation_valid = jnp.all(jnp.isfinite(next_observation))
         head_inputs_valid = (
@@ -608,7 +658,7 @@ class OffPolicyHordeLearner:
         safe_targets = jnp.where(active_mask, td_targets, 0.0)
         safe_clipped_rhos = jnp.where(active_mask, clipped_rhos, 0.0)
         safe_trace_coefficients = jnp.where(active_mask, trace_coefficients, 0.0)
-        safe_discounts = jnp.where(active_mask, discounts, 0.0)
+        safe_previous_discounts = jnp.where(active_mask, previous_discounts, 0.0)
 
         obs = observation
         new_normalizer_state = state.normalizer_state
@@ -784,7 +834,7 @@ class OffPolicyHordeLearner:
             safe_hidden = jnp.where(active_mask[i], hidden, jnp.zeros_like(hidden))
             w_grad = safe_clipped_rhos[i] * safe_hidden.reshape(1, -1)
             b_grad = safe_clipped_rhos[i] * jnp.ones(1, dtype=jnp.float32)
-            head_gl = safe_discounts[i] * lamdas[i] * safe_trace_coefficients[i]
+            head_gl = safe_previous_discounts[i] * lamdas[i] * safe_trace_coefficients[i]
 
             if replacing:
                 new_w_trace = jnp.where(
@@ -899,7 +949,7 @@ class OffPolicyHordeLearner:
             weights=tuple(new_head_weights),
             biases=tuple(new_head_biases),
         )  # type: ignore[call-arg]
-        new_state = MultiHeadMLPState(
+        new_state = OffPolicyHordeState(
             trunk_params=new_trunk_params,
             head_params=new_head_params,
             trunk_optimizer_states=tuple(new_trunk_opt_states),
@@ -912,6 +962,7 @@ class OffPolicyHordeLearner:
             step_words=counter_status.proposed_step_words,
             birth_timestamp=state.birth_timestamp,
             uptime_s=state.uptime_s,
+            previous_discounts=jnp.where(active_mask, discounts, previous_discounts),
         )  # type: ignore[call-arg]
 
         candidate_state_finite = _floating_tree_is_finite(new_state)
@@ -1678,6 +1729,7 @@ __all__ = [
     "NonlinearSharedGTDHordeUpdateResult",
     "OffPolicyHordeLearner",
     "OffPolicyHordeLearningResult",
+    "OffPolicyHordeState",
     "OffPolicyHordeUpdateResult",
     "run_off_policy_horde_learning_loop",
     "run_off_policy_horde_learning_loop_batched",
