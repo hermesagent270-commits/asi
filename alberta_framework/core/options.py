@@ -977,6 +977,16 @@ def _q_values_for_obs(q_weights: Array, observation: Array) -> Array:
     return q_weights @ observation
 
 
+def _discounted_bootstrap(discount: Array, value: Array) -> Array:
+    """Discard an unused bootstrap before scaling, including an overflowed Q.
+
+    Terminal rewards still train the current state when finite next-state
+    inputs overflow the value prediction. Positive discounts retain the raw
+    prediction; input and source-state validity gates remain the caller's job.
+    """
+    return discount * jnp.where(discount == 0.0, jnp.zeros_like(value), value)
+
+
 _GUMBEL_TIE_BREAK_SCALE = jnp.asarray(1.0e-6, dtype=jnp.float32)
 
 
@@ -1396,7 +1406,7 @@ def _update_intra_option_policy(
     bootstrap_discount = jnp.where(terminated, 0.0, transition_discount).astype(jnp.float32)
 
     q_prev = q_i[last_intra_action] @ last_obs
-    q_next = jnp.max(_q_values_for_obs(q_i, next_obs)) * bootstrap_discount
+    q_next = _discounted_bootstrap(bootstrap_discount, jnp.max(_q_values_for_obs(q_i, next_obs)))
     td_error = pseudo_reward - avg_r_i + q_next - q_prev
 
     alpha = jnp.asarray(step_size, dtype=jnp.float32)
@@ -2104,7 +2114,9 @@ class STOMPAgent:
                 target = (
                     models.env_return_ema[model_idx]
                     - average_reward * models.baseline_mass_ema[model_idx]
-                    + models.discount_ema[model_idx] * jnp.max(eligible_next_q)
+                    + _discounted_bootstrap(
+                        models.discount_ema[model_idx], jnp.max(eligible_next_q)
+                    )
                 )
                 targets = (
                     jnp.full(cfg.n_total_actions, jnp.nan, dtype=jnp.float32)
@@ -2262,7 +2274,9 @@ class STOMPAgent:
         )
         eligible_next_q = jnp.where(action_mask, next_q_values, -jnp.inf)
         td_target = (
-            reward - state.base_average_reward + primitive_discount * jnp.max(eligible_next_q)
+            reward
+            - state.base_average_reward
+            + _discounted_bootstrap(primitive_discount, jnp.max(eligible_next_q))
         )
         targets = (
             jnp.full(
@@ -2762,7 +2776,7 @@ class STOMPAgent:
         ) -> tuple[MultiHeadMLPState, Array, Array, Array]:
             next_q_vals = self._base_learner.predict(state.base_learner_state, bootstrap_obs)
             eligible_next_q = jnp.where(action_mask, next_q_vals, -jnp.inf)
-            max_next_q = base_discount * jnp.max(eligible_next_q)
+            max_next_q = _discounted_bootstrap(base_discount, jnp.max(eligible_next_q))
             td_target = base_reward - state.base_average_reward * base_baseline_mass + max_next_q
             targets = (
                 jnp.full(n_total, jnp.nan, dtype=jnp.float32)
