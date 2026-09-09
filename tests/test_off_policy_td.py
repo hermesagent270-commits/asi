@@ -417,15 +417,16 @@ class TestETDLambda:
         # F_t = rho_{t-1} * gamma_t * F_{t-1} + i_t (Sutton, Mahmood & White
         # 2016, eq. 20): F advances on the PRIOR step's rho, not the current
         # one. init()'s previous_rho=1.0 is irrelevant here since F_0=0.
-        # F_1 = 1.0 * 0.9 * 0 + 1 = 1
-        # F_2 = rho_1 * 0.8 * 1 + 1 = 2.0 * 0.8 * 1 + 1 = 2.6
-        # M_2 = lambda * i + (1 - lambda) * F_2 = 0.4 + 0.6 * 2.6 = 1.96
+        # F_1 = 1, since the initial follow-on trace is zero.
+        # The incoming discount on step 2 is the prior call's 0.9:
+        # F_2 = rho_1 * 0.9 * 1 + 1 = 2.8
+        # M_2 = lambda * i + (1 - lambda) * F_2 = 0.4 + 0.6 * 2.8 = 2.08
         chex.assert_trees_all_close(first.state.follow_on_trace, jnp.float32(1.0))
-        chex.assert_trees_all_close(second.state.follow_on_trace, jnp.float32(2.6))
-        chex.assert_trees_all_close(second.state.emphasis, jnp.float32(1.96))
+        chex.assert_trees_all_close(second.state.follow_on_trace, jnp.float32(2.8))
+        chex.assert_trees_all_close(second.state.emphasis, jnp.float32(2.08))
         chex.assert_trees_all_close(
             second.state.eligibility_traces,
-            jnp.array([0.32, 0.98], dtype=jnp.float32),
+            jnp.array([0.36, 1.04], dtype=jnp.float32),
             atol=1e-6,
         )
 
@@ -451,11 +452,11 @@ class TestETDLambda:
             )
             state = result.state
 
-        # F_1 = previous_rho(init=1.0) * 0.5 * F_0(=0) + 1 = 1.0
-        # F_2 = rho_1(=3.0) * 0.9 * F_1(=1.0) + 1 = 3.7
-        # F_3 = rho_2(=0.1) * 0.7 * F_2(=3.7) + 1 = 1.259
-        # (using rho_t instead of rho_{t-1} at each step gives F_3 = 4.052)
-        chex.assert_trees_all_close(state.follow_on_trace, jnp.float32(1.259), atol=1e-5)
+        # F_1 = 1.0 because the initial follow-on trace is zero.
+        # F_2 = rho_1(=3.0) * gamma_1(=0.5) * F_1(=1.0) + 1 = 2.5
+        # F_3 = rho_2(=0.1) * gamma_2(=0.9) * F_2(=2.5) + 1 = 1.225
+        # Using current rho with incoming gamma instead would give F_3 = 4.78.
+        chex.assert_trees_all_close(state.follow_on_trace, jnp.float32(1.225), atol=1e-5)
 
     def test_update_is_jit_compatible(self) -> None:
         learner = ETDLinearLearner(step_size=0.05, trace_decay=0.5)
@@ -1025,9 +1026,10 @@ class TestZeroGammaDoesNotMultiplyInfBootstrap:
         assert bool(jnp.isfinite(result.state.bias_eligibility_trace))
 
     def test_etd_does_not_multiply_inf_follow_on(self) -> None:
-        """gamma=0 drops leftover F; 0 * inf must not freeze the ETD step."""
+        """Incoming gamma=0 drops leftover F; 0 * inf must not freeze the step."""
         learner = ETDLinearLearner(step_size=0.1, trace_decay=0.4)
         state = learner.init(2).replace(  # type: ignore[attr-defined]
+            previous_gamma=jnp.asarray(0.0, dtype=jnp.float32),
             follow_on_trace=jnp.asarray(jnp.inf, dtype=jnp.float32),
             eligibility_traces=jnp.full(2, jnp.inf, dtype=jnp.float32),
             bias_eligibility_trace=jnp.asarray(jnp.inf, dtype=jnp.float32),

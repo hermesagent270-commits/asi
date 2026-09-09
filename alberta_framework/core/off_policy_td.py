@@ -284,6 +284,9 @@ class ETDState:
         bias_eligibility_trace: Emphatic eligibility trace for the bias
         follow_on_trace: Scalar follow-on trace ``F_t``
         emphasis: Scalar emphasis ``M_t`` from the latest update
+        previous_gamma: Discount of the preceding accepted transition, used
+            by both the follow-on and eligibility recurrences. Legacy state
+            without this history is rejected; it must be supplied explicitly.
         previous_rho: Importance ratio from the prior update call, carried
             forward so the *next* call can advance ``F_t`` on ``rho_{t-1}``
             (Sutton, Mahmood & White 2016, eq. 20) rather than on the ratio
@@ -299,6 +302,7 @@ class ETDState:
     bias_eligibility_trace: Float[Array, ""]
     follow_on_trace: Float[Array, ""]
     emphasis: Float[Array, ""]
+    previous_gamma: Float[Array, ""] = None  # type: ignore[assignment]
     previous_rho: Float[Array, ""] = None  # type: ignore[assignment]
     step_count: Int[Array, ""] = None  # type: ignore[assignment]
     birth_timestamp: float = 0.0
@@ -404,8 +408,14 @@ def _etd_state_contract(state: object) -> tuple[ETDState, int]:
     _array_metadata("state.weights", checked.weights, (feature_dim,))
     _array_metadata("state.bias", checked.bias, ())
     _array_metadata("state.eligibility_traces", checked.eligibility_traces, (feature_dim,))
-    for name in ("bias_eligibility_trace", "follow_on_trace", "emphasis", "previous_rho"):
-        _array_metadata(f"state.{name}", getattr(checked, name), ())
+    for name in (
+        "bias_eligibility_trace",
+        "follow_on_trace",
+        "emphasis",
+        "previous_gamma",
+        "previous_rho",
+    ):
+        _array_metadata(f"state.{name}", getattr(checked, name, None), ())
     try:
         step_shape = tuple(checked.step_count.shape)
         step_dtype = np.dtype(checked.step_count.dtype)
@@ -690,9 +700,10 @@ class ETDLinearLearner:
     ``e_t = rho_t * (gamma_t * lambda * e_{t-1} + M_t * phi_t)``
     ``w_{t+1} = w_t + alpha * delta_t * e_t``
 
-    The single-step API advances the follow-on trace with the current
-    transition's ratio and discount. With ``rho=1``, ``gamma=0``, and
-    ``lambda=0``, this reduces to the standard LMS/TD(0) terminating update.
+    The single-step API receives the outgoing discount ``gamma_{t+1}`` for
+    bootstrapping and retains it for the next call's two trace recurrences.
+    With constant ``rho=1``, ``gamma=0``, and ``lambda=0``, this reduces to
+    the standard LMS/TD(0) terminating update.
 
     Attributes:
         step_size: Learning rate alpha
@@ -728,7 +739,7 @@ class ETDLinearLearner:
     def init(self, feature_dim: int) -> ETDState:
         """Initialize learner state with zero weights and zero traces."""
         feature_dim = _require_feature_dim(
-            feature_dim, vectors=2, fixed_scalars=6, update_vectors=9
+            feature_dim, vectors=2, fixed_scalars=7, update_vectors=9, update_scalars=17
         )
         return ETDState(  # type: ignore[call-arg]
             weights=jnp.zeros(feature_dim, dtype=jnp.float32),
@@ -737,6 +748,7 @@ class ETDLinearLearner:
             bias_eligibility_trace=jnp.array(0.0, dtype=jnp.float32),
             follow_on_trace=jnp.array(0.0, dtype=jnp.float32),
             emphasis=jnp.array(0.0, dtype=jnp.float32),
+            previous_gamma=jnp.array(1.0, dtype=jnp.float32),
             previous_rho=jnp.array(1.0, dtype=jnp.float32),
             step_count=jnp.array(0, dtype=jnp.int32),
             birth_timestamp=time.time(),
@@ -770,7 +782,7 @@ class ETDLinearLearner:
             observation: Current feature vector phi(s_t)
             reward: Reward R_{t+1}
             next_observation: Next feature vector phi(s_{t+1})
-            gamma: State-dependent discount gamma (0 at terminal)
+            gamma: Outgoing discount gamma_{t+1} (0 at terminal)
             rho: Importance-sampling ratio pi(a_t|s_t) / b(a_t|s_t).
             interest: State interest i_t. Defaults to 1.0.
 
@@ -822,17 +834,18 @@ class ETDLinearLearner:
 
         # F_t = rho_{t-1} * gamma_t * F_{t-1} + i_t (Sutton, Mahmood & White
         # 2016, eq. 20): the follow-on trace advances on the PRIOR call's
-        # ratio (state.previous_rho), not rho_s -- only e_t below uses rho_s.
+        # ratio and discount, not rho_s or gamma_s. Only e_t uses rho_s;
+        # gamma_s belongs to the TD bootstrap and the next call's history.
         follow_on = (
             _skip_zero_scale(
-                gamma_s,
+                state.previous_gamma,
                 _skip_zero_scale(state.previous_rho, state.follow_on_trace),
             )
             + interest_s
         )
         emphasis = _skip_zero_scale(lam, interest_s) + _skip_zero_scale(1.0 - lam, follow_on)
 
-        trace_decay = gamma_s * lam
+        trace_decay = state.previous_gamma * lam
         eligibility_core = (
             _skip_zero_scale(trace_decay, state.eligibility_traces) + emphasis * observation
         )
@@ -847,6 +860,7 @@ class ETDLinearLearner:
             bias_eligibility_trace=new_e_b,
             follow_on_trace=follow_on,
             emphasis=emphasis,
+            previous_gamma=gamma_s,
             previous_rho=rho_s,
             step_count=jnp.minimum(state.step_count, _INT32_MAX - 1) + 1,
             birth_timestamp=state.birth_timestamp,
@@ -858,14 +872,16 @@ class ETDLinearLearner:
             & ((gamma_s == 0.0) | jnp.all(jnp.isfinite(next_observation)))
             & (gamma_s >= 0.0)
             & (gamma_s <= 1.0)
+            & (state.previous_gamma >= 0.0)
+            & (state.previous_gamma <= 1.0)
             & jnp.isfinite(rho_s)
             & jnp.isfinite(interest_s)
         )
         previous_checked = state.replace(  # type: ignore[attr-defined]
             eligibility_traces=_zero_if_unused(trace_decay, state.eligibility_traces),
             bias_eligibility_trace=_zero_if_unused(trace_decay, state.bias_eligibility_trace),
-            follow_on_trace=_zero_if_unused(gamma_s, state.follow_on_trace),
-            previous_rho=_zero_if_unused(gamma_s, state.previous_rho),
+            follow_on_trace=_zero_if_unused(state.previous_gamma, state.follow_on_trace),
+            previous_rho=_zero_if_unused(state.previous_gamma, state.previous_rho),
         )
         squared_td = td_error**2
         mean_e = jnp.mean(jnp.abs(proposed_state.eligibility_traces))

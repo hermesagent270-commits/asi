@@ -283,6 +283,7 @@ class TestRhoZeroInvariance:
             weights=jnp.asarray(W_INIT),
             bias=jnp.float32(0.5),
             follow_on_trace=jnp.float32(3.0),
+            previous_gamma=jnp.float32(GAMMA),
             previous_rho=jnp.float32(RHO_SOLID),
         )
         result = learner.update(
