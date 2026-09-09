@@ -46,6 +46,7 @@ import operator
 from typing import Any, SupportsIndex, cast
 
 import chex
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
@@ -103,10 +104,10 @@ def _swift_td_update_result_extras_bytes(feature_dim: int) -> int:
 
 
 def _swift_td_update_working_set_bytes(feature_dim: int) -> int:
-    """Source persist, proposed persist, committed persist, and returned extras."""
+    """Three persist copies, returned extras, and stable-bound scratch space."""
     return 3 * _swift_td_persistent_bytes(
         feature_dim
-    ) + _swift_td_update_result_extras_bytes(feature_dim)
+    ) + _swift_td_update_result_extras_bytes(feature_dim) + 4 * (4 * (feature_dim + 1) + 5)
 
 
 def _preflight_swift_td_update_working_set(feature_dim: int) -> None:
@@ -116,6 +117,46 @@ def _preflight_swift_td_update_working_set(feature_dim: int) -> None:
 
 
 _DEFAULT_ETA_MIN = math.exp(-15.0)
+
+
+def _bounded_trace_increment(
+    log_step_sizes: Array, phi: Array, eta: Array
+) -> tuple[Array, Array, Array]:
+    """Evaluate the existing bound without losing representable increments.
+
+    Keep ordinary arithmetic unchanged. When squared features overflow or
+    the bound times alpha underflows before multiplication by phi, evaluate
+    the same expression in log space. The always-on bias guarantees at least
+    one nonzero feature. The reported scale may itself round to zero even
+    when the complete bounded increment is representable.
+    """
+    alphas = jnp.exp(log_step_sizes)
+    tau = jnp.sum(alphas * phi**2)
+    bound_scale = jnp.minimum(1.0, eta / tau)
+    scaled_alphas = bound_scale * alphas
+    increment = scaled_alphas * phi
+    needs_stable_bound = (
+        ~jnp.isfinite(tau)
+        | ~jnp.all(jnp.isfinite(increment))
+        | jnp.any((scaled_alphas == 0.0) & (phi != 0.0))
+    )
+
+    def stable_bound() -> tuple[Array, Array, Array]:
+        log_abs_phi = jnp.log(jnp.abs(phi))
+        log_energy = log_step_sizes + 2.0 * log_abs_phi
+        peak = jnp.max(log_energy)
+        log_tau = peak + jnp.log(jnp.sum(jnp.exp(log_energy - peak)))
+        log_eta = jnp.log(eta)
+        log_scale = jnp.minimum(0.0, log_eta - log_tau)
+        stable_increment = jnp.sign(phi) * jnp.exp(log_step_sizes + log_abs_phi + log_scale)
+        return stable_increment, jnp.exp(log_scale), log_tau > log_eta
+
+    return cast(
+        tuple[Array, Array, Array],
+        jax.lax.cond(
+            needs_stable_bound, stable_bound, lambda: (increment, bound_scale, tau > eta)
+        ),
+    )
 
 _SUPPORTED_CONFIG_REAL_TYPES: tuple[type[object], ...] = (
     int,
@@ -469,12 +510,11 @@ class SwiftTD:
         # --- Trace extension for phi (second loop of Algorithm 1) ---
         # True Online correction: change the previous update made to V(phi).
         v_delta = jnp.dot(state.prev_weight_update, phi)
-        alphas = jnp.exp(state.log_step_sizes)
         # Correction ratio tau = sum_i alpha_i * phi_i^2; the overshoot bound
         # caps the effective ratio of this update at eta.
-        tau = jnp.sum(alphas * phi**2)
-        bound_scale = jnp.minimum(1.0, eta / tau)
-        z_delta = bound_scale * alphas * phi
+        z_delta, bound_scale, decay_triggered = _bounded_trace_increment(
+            state.log_step_sizes, phi, eta
+        )
         trace_dot = jnp.dot(state.eligibility_traces, phi)
         z_ext = state.eligibility_traces + z_delta * (1.0 - trace_dot)
         p_ext = state.p_traces + state.h_old_traces * phi
@@ -490,11 +530,11 @@ class SwiftTD:
         # Step-size decay: when the bound is active, decay the step-sizes of
         # the features responsible (proportional to phi_i^2) and reset the
         # meta-learning traces.
-        decay_triggered = tau > eta
         log_alphas = jnp.where(
             decay_triggered,
             jnp.clip(
-                state.log_step_sizes + jnp.log(state.step_size_decay) * phi**2,
+                state.log_step_sizes
+                + _skip_zero_scale(jnp.log(state.step_size_decay), phi**2),
                 jnp.log(state.eta_min),
                 jnp.log(eta),
             ),
