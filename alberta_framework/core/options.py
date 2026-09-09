@@ -2975,6 +2975,10 @@ class STOMPAgent:
             transaction_preflight
             & intra_update_applied
             & real_base_update_applied
+            # A NaN target is a skipped head to the generic learner, which
+            # still advances its clock. Reject its nonfinite planning result
+            # before those clock increments can certify a successful backup.
+            & jnp.isfinite(planning_td_error)
             & nested_post_matches
             & proposed_state_valid
         )
