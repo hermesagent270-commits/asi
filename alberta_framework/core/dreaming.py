@@ -443,6 +443,8 @@ class GuardedDreamer:
         if uncertainty is None:
             uncertainty = jnp.array(0.0, dtype=jnp.float32)
         uncertainty_arr = jnp.asarray(uncertainty, dtype=jnp.float32)
+        if uncertainty_arr.shape != ():
+            raise ValueError("uncertainty must have shape ()")
         prediction = model.predict(model_state, observation, action)
         max_discount = (
             model.config.gamma

@@ -711,6 +711,35 @@ def test_guarded_dreamer_rejects_warmup_and_accepts_after_real_updates() -> None
     chex.assert_shape(warm.transition.next_observation, (2,))
 
 
+@pytest.mark.parametrize("shape", [(1,), (2,), (1, 1)])
+@pytest.mark.parametrize("execution", ["eager", "jit"])
+def test_guarded_dreamer_rejects_nonscalar_uncertainty(
+    shape: tuple[int, ...], execution: str
+) -> None:
+    model = ActionConditionedWorldModel(
+        ActionConditionedWorldModelConfig(
+            observation_dim=2,
+            n_actions=2,
+            hidden_sizes=(),
+        )
+    )
+    model_state = model.init(jr.key(13))
+    dreamer = GuardedDreamer(DreamingConfig())
+    observation = jnp.zeros((2,), dtype=jnp.float32)
+    action = jnp.asarray(0, dtype=jnp.int32)
+    uncertainty = jnp.zeros(shape, dtype=jnp.float32)
+
+    def propose(value: jax.Array) -> object:
+        return dreamer.propose(model, model_state, observation, action, value)
+
+    with pytest.raises(ValueError, match=r"uncertainty must have shape \(\)"):
+        if execution == "eager":
+            with jax.disable_jit():
+                propose(uncertainty)
+        else:
+            jax.jit(propose)(uncertainty)
+
+
 def test_recent_observation_buffer_ring_and_sample() -> None:
     buffer = RecentObservationBuffer(capacity=2, observation_dim=3)
     state = buffer.init()
