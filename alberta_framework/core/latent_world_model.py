@@ -117,6 +117,18 @@ def _saturating_int32_increment(value: Array) -> Array:
     return jnp.where(value < maximum, value + jnp.asarray(1, dtype=jnp.int32), maximum)
 
 
+def _float32_operand(
+    name: str,
+    value: Array | float | int,
+    shape: tuple[int, ...],
+) -> Array:
+    """Narrow one numeric operand while preserving its exact shape contract."""
+    array = jnp.asarray(value, dtype=jnp.float32)
+    if array.shape != shape:
+        raise ValueError(f"{name} must have shape {shape}, got {array.shape}")
+    return array
+
+
 def _latent_direct_state_scalars(
     *,
     observation_dim: int,
@@ -656,7 +668,11 @@ class LatentWorldModel:
         observation: Array,
     ) -> Float[Array, " latent_dim"]:
         """Encode one observation with explicit (differentiable) encoder params."""
-        obs = jnp.asarray(observation, dtype=jnp.float32).reshape((self._config.observation_dim,))
+        obs = _float32_operand(
+            "observation",
+            observation,
+            (self._config.observation_dim,),
+        )
         scale = jnp.asarray(self._observation_scale, dtype=jnp.float32)
         scaled = obs / scale
         return jnp.tanh(scaled @ encoder_matrix + encoder_bias)
@@ -677,7 +693,8 @@ class LatentWorldModel:
         action: Array,
     ) -> Float[Array, " input_dim"]:
         """Return ``concat(latent, one_hot(action), optional interactions)``."""
-        z = jnp.asarray(latent, dtype=jnp.float32).reshape((self._config.latent_dim,))
+        z = _float32_operand("latent", latent, (self._config.latent_dim,))
+        action = _float32_operand("action", action, ())
         safe_action, action_valid = safe_discrete_action(
             action,
             self._config.n_actions,
@@ -736,11 +753,10 @@ class LatentWorldModel:
             next_latent - latent,
             next_latent,
         )
-        reward_target = jnp.reshape(
-            jnp.asarray(reward, dtype=jnp.float32) / self._config.reward_scale,
-            (1,),
-        )
-        discount_target = jnp.reshape(jnp.asarray(discount, dtype=jnp.float32), (1,))
+        reward_arr = _float32_operand("reward", reward, ())
+        discount_arr = _float32_operand("discount", discount, ())
+        reward_target = jnp.reshape(reward_arr / self._config.reward_scale, (1,))
+        discount_target = jnp.reshape(discount_arr, (1,))
         return jnp.concatenate([latent_target, reward_target, discount_target], axis=0)
 
     @functools.partial(jax.jit, static_argnums=(0,))
@@ -751,7 +767,7 @@ class LatentWorldModel:
         action: Array,
     ) -> LatentWorldModelPrediction:
         """Predict the next latent, reward, and discount from a latent state."""
-        z = jnp.asarray(latent, dtype=jnp.float32).reshape((self._config.latent_dim,))
+        z = _float32_operand("latent", latent, (self._config.latent_dim,))
         raw_predictions = self._learner.predict(
             state.learner_state,
             self.input_features_from_latent(z, action),
@@ -885,17 +901,22 @@ class LatentWorldModel:
         ``encoder_learning=False`` the computation is exactly the
         fixed-encoder path.
         """
-        observation_arr = jnp.asarray(observation, dtype=jnp.float32).reshape(
-            (self._config.observation_dim,)
+        observation_arr = _float32_operand(
+            "observation",
+            observation,
+            (self._config.observation_dim,),
         )
+        action = _float32_operand("action", action, ())
         action_arr, action_valid = safe_discrete_action(
             action,
             self._config.n_actions,
         )
-        reward_arr = jnp.asarray(reward, dtype=jnp.float32)
-        discount_arr = jnp.asarray(discount, dtype=jnp.float32)
-        next_observation_arr = jnp.asarray(next_observation, dtype=jnp.float32).reshape(
-            (self._config.observation_dim,)
+        reward_arr = _float32_operand("reward", reward, ())
+        discount_arr = _float32_operand("discount", discount, ())
+        next_observation_arr = _float32_operand(
+            "next_observation",
+            next_observation,
+            (self._config.observation_dim,),
         )
         inputs_valid = (
             jnp.all(jnp.isfinite(observation_arr))
