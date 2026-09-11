@@ -163,6 +163,30 @@ def _array_contract(
     return array
 
 
+def _require_typed_threefry_key(name: str, value: object) -> Array:
+    """Require one scalar typed Threefry key backed by exactly two uint32 words."""
+    dtype = getattr(value, "dtype", None)
+    if (
+        dtype is None
+        or getattr(value, "shape", None) != ()
+        or not jnp.issubdtype(dtype, jax.dtypes.prng_key)
+    ):
+        raise ValueError(f"{name} must be a scalar typed threefry2x32 key")
+    key = cast(Array, value)
+    try:
+        implementation = str(jr.key_impl(key))
+        words = jr.key_data(key)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} must be a scalar typed threefry2x32 key") from error
+    if (
+        implementation != "threefry2x32"
+        or words.shape != (2,)
+        or words.dtype != jnp.uint32
+    ):
+        raise ValueError(f"{name} must be a scalar typed threefry2x32 key")
+    return key
+
+
 def _tree_all_finite(tree: Any) -> Array:
     checks: list[Array] = []
     for leaf in jax.tree_util.tree_leaves(tree):
@@ -896,8 +920,8 @@ class RecurrentLatentWorldModelEnsemble:
         ``decide`` / ``update`` transitions instead.
 
         Raises:
-            ValueError: If ``key`` is not one JAX PRNG key, or the drawn
-                initial parameters would already fail the configured
+            ValueError: If ``key`` is not one scalar typed Threefry JAX key,
+                or the drawn initial parameters would already fail the configured
                 ``max_parameter_magnitude`` bound (an initialized state that
                 the module itself rejects would make every later event a
                 silent no-op).
@@ -912,9 +936,7 @@ class RecurrentLatentWorldModelEnsemble:
         return state
 
     def _initial_state(self, key: Array) -> RecurrentLatentWorldModelEnsembleState:
-        key_data = jr.key_data(key)
-        if key_data.shape != (2,) or key_data.dtype != jnp.uint32:
-            raise ValueError("key must be one JAX PRNG key")
+        key = _require_typed_threefry_key("key", key)
         keys = jr.split(key, self._config.ensemble_size + 1)
         return RecurrentLatentWorldModelEnsembleState(
             member_parameters=tuple(
@@ -937,6 +959,7 @@ class RecurrentLatentWorldModelEnsemble:
             raise TypeError("state must be a RecurrentLatentWorldModelEnsembleState")
         if len(state.member_parameters) != self._config.ensemble_size:
             raise ValueError("state member count does not match ensemble_size")
+        _require_typed_threefry_key("state.bootstrap_key", state.bootstrap_key)
         _validate_static_signature(state, self._state_signature, name="state")
         for index, parameters in enumerate(state.member_parameters):
             _validate_static_signature(
@@ -944,9 +967,6 @@ class RecurrentLatentWorldModelEnsemble:
                 self._member_signature,
                 name=f"state.member_parameters[{index}]",
             )
-        key_data = jr.key_data(state.bootstrap_key)
-        if key_data.shape != (2,) or key_data.dtype != jnp.uint32:
-            raise ValueError("state.bootstrap_key must be one JAX PRNG key")
 
     def _validate_start_static(self, cache: RecurrentLatentStartCache) -> None:
         if not isinstance(cache, RecurrentLatentStartCache):
