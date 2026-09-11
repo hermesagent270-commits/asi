@@ -6,6 +6,7 @@ import jax.random as jr
 import numpy as np
 import pytest
 
+from alberta_framework.core.feature_discovery import FixedBudgetFeatureLearner
 from alberta_framework.streams.feature_discovery import (
     InteractionFeatureDiscoveryStream,
     NonlinearFeatureDiscoveryStream,
@@ -349,6 +350,47 @@ def test_init_requires_scalar_typed_threefry_key(
     for bad in (jnp.asarray([0, 1], dtype=jnp.uint32), jnp.asarray(0, dtype=jnp.int32)):
         with pytest.raises(TypeError, match="Threefry"):
             stream.init(bad)
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    [
+        jnp.asarray([0, 1], dtype=jnp.uint32),
+        jr.key(1, impl="rbg"),
+        jr.split(jr.key(1, impl="threefry2x32"), 1),
+    ],
+)
+def test_fixed_budget_feature_learner_init_requires_scalar_typed_threefry_key(
+    bad_key: jax.Array,
+) -> None:
+    learner = FixedBudgetFeatureLearner(n_features=2, n_tasks=1, candidate_count=1)
+
+    with pytest.raises(TypeError, match="FixedBudgetFeatureLearner key.*Threefry"):
+        learner.init(feature_dim=3, key=bad_key)
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    [
+        jnp.asarray([0, 1], dtype=jnp.uint32),
+        jr.key(1, impl="rbg"),
+        jr.split(jr.key(1, impl="threefry2x32"), 1),
+    ],
+)
+def test_fixed_budget_feature_learner_update_rejects_non_threefry_state_key(
+    bad_key: jax.Array,
+) -> None:
+    learner = FixedBudgetFeatureLearner(n_features=2, n_tasks=1, candidate_count=1)
+    state = learner.init(feature_dim=3, key=jr.key(2, impl="threefry2x32")).replace(
+        key=bad_key
+    )
+
+    with pytest.raises(TypeError, match="state.key.*Threefry"):
+        learner.update(
+            state,
+            jnp.ones(3, dtype=jnp.float32),
+            jnp.ones(1, dtype=jnp.float32),
+        )
 
 
 @pytest.mark.parametrize(
