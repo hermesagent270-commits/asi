@@ -159,6 +159,43 @@ def test_initialization_is_distinct_fixed_width_and_exactly_accounted() -> None:
     assert budget.replay_capacity == 0
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        jr.PRNGKey(7),
+        jr.key(7, impl="rbg"),
+        jr.split(jr.key(7), 1),
+    ],
+)
+def test_init_rejects_keys_outside_scalar_typed_threefry_contract(key: jax.Array) -> None:
+    model = RecurrentLatentWorldModelEnsemble(_config())
+    with pytest.raises(ValueError, match="key must be a scalar typed threefry2x32 key"):
+        model.init(key)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        jr.PRNGKey(11),
+        jr.key(11, impl="rbg"),
+        jr.split(jr.key(11), 1),
+    ],
+)
+def test_static_state_contract_rejects_noncanonical_bootstrap_key(key: jax.Array) -> None:
+    model = RecurrentLatentWorldModelEnsemble(_config())
+    state = model.init(jr.key(11)).replace(bootstrap_key=key)
+    with pytest.raises(
+        ValueError,
+        match="state.bootstrap_key must be a scalar typed threefry2x32 key",
+    ):
+        model.state_valid(state)
+    with pytest.raises(
+        ValueError,
+        match="state.bootstrap_key must be a scalar typed threefry2x32 key",
+    ):
+        model.resource_budget(state)
+
+
 _REAL_SCALAR_FIELDS = (
     "learning_rate",
     "variance_floor",
