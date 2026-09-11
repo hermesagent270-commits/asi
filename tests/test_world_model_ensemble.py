@@ -208,6 +208,45 @@ def test_init_uses_distinct_member_keys_and_isolated_real_replay_mask_keys() -> 
     )
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        jr.PRNGKey(7),
+        jr.key(7, impl="rbg"),
+        jr.split(jr.key(7), 1),
+    ],
+)
+def test_init_rejects_keys_outside_scalar_typed_threefry_contract(key: jax.Array) -> None:
+    ensemble = WorldModelEnsemble(_config())
+    with pytest.raises(TypeError, match="scalar typed Threefry"):
+        ensemble.init(key)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["bootstrap_key", "replay_bootstrap_key"],
+)
+@pytest.mark.parametrize(
+    "key",
+    [
+        jr.PRNGKey(11),
+        jr.key(11, impl="rbg"),
+        jr.split(jr.key(11), 1),
+    ],
+)
+def test_static_state_contract_rejects_noncanonical_bootstrap_keys(
+    field: str,
+    key: jax.Array,
+) -> None:
+    ensemble = WorldModelEnsemble(_config())
+    state = ensemble.init(jr.key(11))
+    corrupt = state.replace(**{field: key})
+    with pytest.raises(TypeError, match=rf"state.{field} must be a scalar typed Threefry"):
+        ensemble.state_valid(corrupt)
+    with pytest.raises(TypeError, match=rf"state.{field} must be a scalar typed Threefry"):
+        ensemble.resource_budget(corrupt)
+
+
 def test_resource_budget_counts_member_lifetime_words_and_matches_state() -> None:
     ensemble = WorldModelEnsemble(_config())
     state = ensemble.init(jr.key(0))
