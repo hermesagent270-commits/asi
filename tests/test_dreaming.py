@@ -425,6 +425,67 @@ def test_nonfinite_scalar_channels_mark_the_dream_step_invalid(field: str) -> No
     assert not bool(jnp.any(rollout.transitions.valid))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "field",
+    [
+        "action_probability",
+        "reward",
+        "discount",
+        "terminated",
+        "confidence",
+        "model_error",
+    ],
+)
+@pytest.mark.parametrize("shape", [(1,), (2,), (1, 1)])
+def test_dream_step_rejects_nonscalar_protocol_fields(
+    field: str,
+    shape: tuple[int, ...],
+) -> None:
+    class NonscalarWorldModel(MockWorldModel):
+        def predict(self, state, observation, action, key):  # type: ignore[no-untyped-def]
+            prediction = super().predict(state, observation, action, key)
+            if field == "action_probability":
+                return prediction
+            dtype = jnp.bool_ if field == "terminated" else jnp.float32
+            return dataclasses.replace(
+                prediction,
+                **{field: jnp.ones(shape, dtype=dtype)},
+            )
+
+    class NonscalarBehaviorModel(DeterministicBehaviorModel):
+        def sample_action(self, state, observation, key):  # type: ignore[no-untyped-def]
+            prediction = super().sample_action(state, observation, key)
+            if field != "action_probability":
+                return prediction
+            return dataclasses.replace(
+                prediction,
+                action_probability=jnp.ones(shape, dtype=jnp.float32),
+            )
+
+    world = NonscalarWorldModel()
+    behavior = NonscalarBehaviorModel()
+    world_state = _world_state()
+    behavior_state = DeterministicBehaviorState(action=jnp.array(1, dtype=jnp.int32))
+    initial = init_dream_rollout_state(
+        jnp.array([1.0, 2.0], dtype=jnp.float32),
+        jr.key(340),
+    )
+    message = field.replace("action_probability", "behavior action_probability")
+
+    with pytest.raises(ValueError, match=message):
+        dream_one_step(world, world_state, behavior, behavior_state, initial)
+    with pytest.raises(ValueError, match=message):
+        dream_rollout(
+            world,
+            world_state,
+            behavior,
+            behavior_state,
+            initial,
+            DreamRolloutConfig(rollout_horizon=2),
+        )
+
+
 def test_training_item_conversions_have_expected_targets() -> None:
     world = MockWorldModel()
     behavior = DeterministicBehaviorModel()

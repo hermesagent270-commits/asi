@@ -141,6 +141,12 @@ def _require_bool(value: object, name: str) -> bool:
     return value
 
 
+def _require_scalar_shape(name: str, value: object) -> None:
+    """Reject protocol operands that would broadcast scalar rollout state."""
+    if jnp.asarray(value).shape != ():
+        raise ValueError(f"{name} must be a scalar")
+
+
 @dataclasses.dataclass(frozen=True)
 class DreamingConfig:
     """Configuration for guarded model-generated transitions.
@@ -938,12 +944,24 @@ def dream_one_step(
         rollout_state.observation,
         action_key,
     )
+    _require_scalar_shape(
+        "behavior action_probability",
+        behavior_prediction.action_probability,
+    )
     world_prediction = world_model.predict(
         world_state,
         rollout_state.observation,
         behavior_prediction.action,
         model_key,
     )
+    for name, value in (
+        ("reward", world_prediction.reward),
+        ("discount", world_prediction.discount),
+        ("terminated", world_prediction.terminated),
+        ("confidence", world_prediction.confidence),
+        ("model_error", world_prediction.model_error),
+    ):
+        _require_scalar_shape(name, value)
     confidence_ok = world_prediction.confidence >= jnp.asarray(
         cfg.confidence_threshold,
         dtype=jnp.float32,
