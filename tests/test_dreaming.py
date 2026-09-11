@@ -405,6 +405,46 @@ def test_nonfinite_imagined_action_marks_the_dream_step_invalid() -> None:
         assert bool(jnp.all(jnp.isfinite(leaf)))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["eager", "scan"])
+@pytest.mark.parametrize("shape", [(), (1,), (3,), (2, 1)])
+def test_dream_rollout_rejects_mismatched_next_observation_shape(
+    mode: str,
+    shape: tuple[int, ...],
+) -> None:
+    """A model prediction must preserve the rollout observation shape."""
+
+    class WrongShapeWorldModel(MockWorldModel):
+        def predict(self, state, observation, action, key):  # type: ignore[no-untyped-def]
+            prediction = super().predict(state, observation, action, key)
+            return dataclasses.replace(
+                prediction,
+                next_observation=jnp.zeros(shape, dtype=jnp.float32),
+            )
+
+    world = WrongShapeWorldModel()
+    world_state = _world_state()
+    behavior = DeterministicBehaviorModel()
+    behavior_state = DeterministicBehaviorState(action=jnp.array(1, dtype=jnp.int32))
+    initial = init_dream_rollout_state(
+        jnp.array([1.0, 1.0], dtype=jnp.float32),
+        jr.key(23),
+    )
+
+    with pytest.raises(ValueError, match=r"next_observation must have shape \(2,\)"):
+        if mode == "eager":
+            dream_one_step(world, world_state, behavior, behavior_state, initial)
+        else:
+            dream_rollout(
+                world,
+                world_state,
+                behavior,
+                behavior_state,
+                initial,
+                DreamRolloutConfig(rollout_horizon=2),
+            )
+
+
 @pytest.mark.parametrize("field", ["reward", "discount", "confidence", "model_error"])
 def test_nonfinite_scalar_channels_mark_the_dream_step_invalid(field: str) -> None:
     class ScalarNaNWorldModel(MockWorldModel):
