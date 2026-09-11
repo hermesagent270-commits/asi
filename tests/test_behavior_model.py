@@ -337,6 +337,41 @@ def test_resource_budget_matches_initialized_state_arrays_exactly() -> None:
     assert budget.to_dict()["state_nbytes"] == actual_nbytes
 
 
+@pytest.mark.parametrize(
+    "key",
+    (
+        jax.random.PRNGKey(13),
+        jax.random.key(13, impl="rbg"),
+        jax.random.split(jax.random.key(13, impl="threefry2x32"), 1),
+    ),
+)
+def test_behavior_model_init_requires_scalar_typed_threefry_key(key: jax.Array) -> None:
+    model = BehaviorModel(BehaviorModelConfig(n_actions=3))
+
+    with pytest.raises(TypeError, match="scalar typed Threefry"):
+        model.init(feature_dim=4, key=key)
+
+
+@pytest.mark.parametrize(
+    "key",
+    (
+        jax.random.PRNGKey(17),
+        jax.random.key(17, impl="rbg"),
+        jax.random.split(jax.random.key(17, impl="threefry2x32"), 1),
+    ),
+)
+def test_behavior_model_sampling_requires_scalar_typed_threefry_state_key(
+    key: jax.Array,
+) -> None:
+    model = BehaviorModel(BehaviorModelConfig(n_actions=3))
+    state = model.init(feature_dim=4, key=jax.random.key(17, impl="threefry2x32")).replace(
+        rng_key=key
+    )
+
+    with pytest.raises(TypeError, match="state.rng_key must be a scalar typed Threefry"):
+        model.sample_action(state, jnp.ones((4,), dtype=jnp.float32))
+
+
 def test_preupdate_input_gradient_matches_autodiff_and_does_not_advance_state() -> None:
     model = BehaviorModel(
         BehaviorModelConfig(
@@ -899,4 +934,3 @@ def test_floor_and_renormalize_probabilities_returns_simplex_on_zero_and_extreme
         out = floor_and_renormalize_probabilities(jnp.asarray(probs, dtype=jnp.float32))
         np.testing.assert_allclose(float(jnp.sum(out)), 1.0, atol=1e-5)
         assert np.all(np.asarray(out) >= 1e-6)
-

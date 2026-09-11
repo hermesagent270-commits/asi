@@ -63,6 +63,29 @@ def _validated_config_float(name: str, value: object, **bounds: Any) -> float:
     return validated_float32_scalar(name, value, **bounds)
 
 
+def _require_typed_threefry_key(name: str, value: object) -> Array:
+    """Require one scalar typed Threefry key with exactly two uint32 words."""
+    actual_type = type(value)
+    if not (
+        issubclass(actual_type, jax.Array) or issubclass(actual_type, jax.core.Tracer)
+    ):
+        raise TypeError(f"{name} must be a scalar typed Threefry JAX key")
+    trusted = cast(Array, value)
+    try:
+        implementation = str(jr.key_impl(trusted))
+        words = jr.key_data(trusted)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{name} must be a scalar typed Threefry JAX key") from error
+    if (
+        trusted.shape != ()
+        or implementation != "threefry2x32"
+        or words.shape != (2,)
+        or words.dtype != jnp.dtype(jnp.uint32)
+    ):
+        raise TypeError(f"{name} must be a scalar typed Threefry JAX key")
+    return trusted
+
+
 def _resource_counts(n_actions: int, feature_dim: int) -> tuple[int, int]:
     """Return exact trainable scalars and bytes, rejecting unsafe derived counts."""
     trainable = n_actions * feature_dim + n_actions
@@ -633,6 +656,7 @@ class BehaviorModel:
             self._config.n_actions,
             feature_dim,
         )
+        key = _require_typed_threefry_key("key", key)
         return BehaviorModelState(
             weights=jnp.zeros(
                 (self._config.n_actions, feature_dim),
@@ -959,6 +983,7 @@ class BehaviorModel:
         observation: Array,
     ) -> BehaviorModelSampleResult:
         """Sample one action from the learned behavior distribution."""
+        _require_typed_threefry_key("state.rng_key", state.rng_key)
         key, sample_key = jr.split(state.rng_key)
         probabilities = floor_and_renormalize_probabilities(
             self.predict_probabilities(state, observation),
