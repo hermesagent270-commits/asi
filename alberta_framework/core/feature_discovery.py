@@ -73,6 +73,23 @@ def _require_int32(name: str, value: object, *, minimum: int) -> int:
     return canonical
 
 
+def _require_typed_threefry_key(name: str, value: object) -> Array:
+    """Require one scalar typed Threefry key without accepting legacy key data."""
+    actual_type = type(value)
+    if not (
+        issubclass(actual_type, jax.Array) or issubclass(actual_type, jax.core.Tracer)
+    ):
+        raise TypeError(f"{name} must be a scalar typed Threefry JAX key")
+    trusted = cast(Array, value)
+    try:
+        words = jr.key_data(trusted)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{name} must be a scalar typed Threefry JAX key") from error
+    if trusted.shape != () or words.shape != (2,) or words.dtype != jnp.dtype(jnp.uint32):
+        raise TypeError(f"{name} must be a scalar typed Threefry JAX key")
+    return trusted
+
+
 def _require_feature_discovery_loop_steps(name: str, value: object) -> int:
     """Reject scan lengths above the public last-fit before ``jnp.arange``."""
     return require_scan_steps(name, value, _FEATURE_DISCOVERY_LOOP_BUDGET)
@@ -649,6 +666,7 @@ class FixedBudgetFeatureLearner:
         """Initialize active and candidate feature banks."""
         feature_dim = _require_int32("feature_dim", feature_dim, minimum=1)
         self._configured_state_nbytes(feature_dim)
+        key = _require_typed_threefry_key("FixedBudgetFeatureLearner key", key)
         key, k_active, k_candidate = jr.split(key, 3)
         scale = self._init_scale / jnp.sqrt(float(feature_dim))
         feature_weights = scale * jr.normal(
@@ -728,6 +746,7 @@ class FixedBudgetFeatureLearner:
         """Fail while tracing before broadcasting or dtype promotion can occur."""
         if state.feature_weights.ndim != 2:
             raise ValueError("state.feature_weights must be a rank-2 array")
+        _require_typed_threefry_key("state.key", state.key)
         feature_dim = state.feature_weights.shape[1]
         float_shapes = {
             "feature_weights": (self._n_features, feature_dim),
