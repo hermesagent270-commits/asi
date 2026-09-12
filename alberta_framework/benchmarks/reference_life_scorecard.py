@@ -1561,15 +1561,20 @@ def write_new_json(path: Path, value: Any) -> Path:
         view = memoryview(encoded)
         written = 0
         while written < len(view):
-            written += os.write(file_fd, view[written:])
+            count = os.write(file_fd, view[written:])
+            if count <= 0:
+                raise OSError("immutable output write made no progress")
+            written += count
         os.fsync(file_fd)
         os.fchmod(file_fd, 0o444)
+        os.fsync(file_fd)
         try:
             _link_unnamed_file(file_fd, parent_fd, destination.name)
         except FileExistsError as exc:
             raise FileExistsError(
                 f"refusing to overwrite immutable output: {destination}"
             ) from exc
+        os.fsync(parent_fd)
         return destination
     finally:
         if file_fd is not None:
