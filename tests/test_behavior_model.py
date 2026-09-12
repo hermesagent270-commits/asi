@@ -307,6 +307,76 @@ def test_temperature_rejects_subnormal_float32_before_softmax_division() -> None
     assert bool(jnp.isfinite(result.loss))
 
 
+def test_non_power_of_two_cooling_keeps_public_learned_policy_finite() -> None:
+    """A finite accepted update must not make the next cooled policy unusable."""
+    model = BehaviorModel(
+        BehaviorModelConfig(
+            n_actions=3,
+            step_size=0.05,
+            temperature=0.7,
+        )
+    )
+    observation = jnp.asarray([7.2e19], dtype=jnp.float32)
+    initial = model.init(feature_dim=1, key=jax.random.key(11))
+
+    first = model.update(initial, observation, jnp.asarray(0, dtype=jnp.int32))
+    assert bool(first.update_applied)
+    logits = model.predict_logits(first.state, observation)
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert not bool(jnp.all(jnp.isfinite(logits / model.config.temperature)))
+
+    probabilities = model.predict_probabilities(first.state, observation)
+    chex.assert_tree_all_finite(probabilities)
+    chex.assert_trees_all_close(jnp.sum(probabilities), 1.0)
+    assert float(probabilities[0]) > 0.999
+
+    sampled = model.sample_action(first.state, observation)
+    chex.assert_tree_all_finite(
+        (
+            sampled.probabilities,
+            sampled.action_probability,
+            sampled.log_likelihood,
+        )
+    )
+    assert float(sampled.probabilities[0]) > 0.999
+
+    gradient = model.input_loss_gradient(
+        first.state,
+        observation,
+        jnp.asarray(0, dtype=jnp.int32),
+    )
+    assert bool(gradient.valid)
+    chex.assert_tree_all_finite(gradient)
+
+    continued = model.update(
+        first.state,
+        observation,
+        jnp.asarray(0, dtype=jnp.int32),
+    )
+    assert bool(continued.update_applied)
+    assert int(continued.state.step_count) == 2
+
+
+def test_large_temperature_preserves_finite_opposite_logit_separation() -> None:
+    """Pre-scaling centering must not overflow a finite heated distribution."""
+    model = BehaviorModel(BehaviorModelConfig(n_actions=2, temperature=1e38))
+    initial = model.init(feature_dim=1, key=jax.random.key(13))
+    state = initial.replace(
+        weights=jnp.asarray([[3e38], [-3e38]], dtype=jnp.float32),
+    )
+
+    logits = model.predict_logits(state, jnp.ones((1,), dtype=jnp.float32))
+    chex.assert_tree_all_finite(logits)
+    probabilities = model.predict_probabilities(state, jnp.ones((1,), dtype=jnp.float32))
+
+    chex.assert_tree_all_finite(probabilities)
+    np.testing.assert_allclose(
+        probabilities,
+        jax.nn.softmax(jnp.asarray([3.0, -3.0], dtype=jnp.float32)),
+        rtol=1e-5,
+    )
+
+
 def test_config_and_init_reject_boolean_or_nonpositive_dimensions() -> None:
     with pytest.raises(ValueError, match="n_actions"):
         BehaviorModelConfig(n_actions=True)
@@ -899,4 +969,3 @@ def test_floor_and_renormalize_probabilities_returns_simplex_on_zero_and_extreme
         out = floor_and_renormalize_probabilities(jnp.asarray(probs, dtype=jnp.float32))
         np.testing.assert_allclose(float(jnp.sum(out)), 1.0, atol=1e-5)
         assert np.all(np.asarray(out) >= 1e-6)
-
