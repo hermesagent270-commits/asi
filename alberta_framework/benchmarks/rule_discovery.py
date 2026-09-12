@@ -456,6 +456,14 @@ def _rms_mix(hidden: Array, f_rms: Array) -> Array:
     return f_rms * (hidden / rms) + (1.0 - f_rms) * hidden
 
 
+def _scaled_log_softmax(logits: Array, divisor: float) -> Array:
+    """Return a shift-invariant log-softmax after dividing finite logits."""
+    centered = logits - jax.lax.stop_gradient(jnp.max(logits))
+    scaled = centered / divisor
+    scaled = scaled - jax.lax.stop_gradient(jnp.max(scaled))
+    return jax.nn.log_softmax(scaled)
+
+
 def _loss_logits(
     params: dict[str, Array], x: Array, y: Array, f_rms: Array
 ) -> tuple[Array, tuple[Array, Array]]:
@@ -560,7 +568,7 @@ def rule_step(
     )
     s_net = jax.nn.log_softmax(logits)
     s_rls = jax.nn.log_softmax(_RLS_VOTE_TEMP * rls_scores)
-    s_nb = jax.nn.log_softmax(nb_ll / float(input_dim))
+    s_nb = _scaled_log_softmax(nb_ll, float(input_dim))
     w_net = state.member_acc[0]
     w_rls = f_rls * state.member_acc[1]
     w_nb = f_nb * state.member_acc[2]
