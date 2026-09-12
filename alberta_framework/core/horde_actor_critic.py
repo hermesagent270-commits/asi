@@ -106,6 +106,19 @@ def _validated_actor_temperature(value: object) -> float:
     return temperature
 
 
+def _temperature_scaled_logits(logits: Array, temperature: float) -> Array:
+    """Scale logits without exposing a rounded argmax to softmax fusion."""
+    if temperature > 1.0:
+        # Halving both operands is exact and prevents centering opposite finite
+        # extremes from overflowing before a large temperature brings them in range.
+        logits = logits * 0.5
+        temperature *= 0.5
+    # Both shifts preserve softmax/log-softmax while keeping division in range.
+    centered = logits - jax.lax.stop_gradient(jnp.max(logits))
+    scaled = centered / temperature
+    return scaled - jax.lax.stop_gradient(jnp.max(scaled))
+
+
 def _exact_config_payload(config: object, expected: frozenset[str]) -> dict[str, Any]:
     if type(config) is not dict:
         raise ValueError("config must be an exact built-in dict")
@@ -625,7 +638,7 @@ class QHordeActorCriticAgent:
     ) -> Float[Array, " n_actions"]:
         """Compute softmax action probabilities for one observation."""
         logits = state.actor_weights @ observation + state.actor_bias
-        return jax.nn.softmax(logits / self._config.temperature)
+        return jax.nn.softmax(_temperature_scaled_logits(logits, self._config.temperature))
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def q_values(self, state: QHordeActorCriticState, observation: Array) -> Array:
@@ -921,7 +934,7 @@ class HordeActorCriticAgent:
     ) -> Float[Array, " n_actions"]:
         """Compute softmax action probabilities for one observation."""
         logits = state.actor_weights @ observation + state.actor_bias
-        return jax.nn.softmax(logits / self._config.temperature)
+        return jax.nn.softmax(_temperature_scaled_logits(logits, self._config.temperature))
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def values(self, state: HordeActorCriticState, observation: Array) -> Array:
@@ -1303,7 +1316,7 @@ def _nlhac_log_prob(
     )
     logits = head_w @ hidden + head_b
     # Keep the score in log space so finite extreme logits retain finite gradients.
-    log_probs = jax.nn.log_softmax(logits / temperature)
+    log_probs = jax.nn.log_softmax(_temperature_scaled_logits(logits, temperature))
     epsilon = jnp.asarray(actor_epsilon, dtype=log_probs.dtype)
     uniform_log_prob = jnp.log(epsilon) - jnp.log(
         jnp.asarray(log_probs.shape[0], dtype=log_probs.dtype)
@@ -1336,7 +1349,7 @@ def _nlqhac_expected_advantage_objective(
         trunk_weights, trunk_biases, obs, leaky_relu_slope, use_layer_norm
     )
     logits = head_w @ hidden + head_b
-    probs = jax.nn.softmax(logits / temperature)
+    probs = jax.nn.softmax(_temperature_scaled_logits(logits, temperature))
     return jnp.dot(probs, advantages)
 
 
@@ -1752,7 +1765,7 @@ class NonlinearHordeActorCriticAgent:
             cfg.use_layer_norm,
         )
         logits = state.actor_head_w @ hidden + state.actor_head_b
-        probs = jax.nn.softmax(logits / cfg.temperature)
+        probs = jax.nn.softmax(_temperature_scaled_logits(logits, cfg.temperature))
         return (1.0 - cfg.actor_epsilon) * probs + cfg.actor_epsilon / cfg.n_actions
 
     @functools.partial(jax.jit, static_argnums=(0,))
@@ -2461,7 +2474,7 @@ class NonlinearQHordeActorCriticAgent:
             cfg.use_layer_norm,
         )
         logits = state.actor_head_w @ hidden + state.actor_head_b
-        return jax.nn.softmax(logits / cfg.temperature)
+        return jax.nn.softmax(_temperature_scaled_logits(logits, cfg.temperature))
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def q_values(self, state: NonlinearHordeActorCriticState, observation: Array) -> Array:
