@@ -94,6 +94,47 @@ def test_differential_sarsa_discount_hand_calculation(
     )
 
 
+def test_differential_sarsa_splits_incoming_trace_and_outgoing_bootstrap_discounts() -> None:
+    """The trace cursor and next-value bootstrap use opposite discount sides."""
+    agent = DifferentialSARSAAgent(
+        DifferentialSARSAConfig(
+            n_actions=1,
+            q_step_size=0.0,
+            average_reward_step_size=0.0,
+            trace_decay=0.8,
+            epsilon_start=0.0,
+            use_bias=False,
+        )
+    )
+    state = agent.init(2, jr.key(3)).replace(
+        q_weights=jnp.array([[0.5, 0.5]], dtype=jnp.float32),
+        q_trace_weights=jnp.array([[2.0, 0.0]], dtype=jnp.float32),
+        last_observation=jnp.array([1.0, 0.0], dtype=jnp.float32),
+        last_action=jnp.array(0, dtype=jnp.int32),
+        previous_discount=jnp.array(0.25, dtype=jnp.float32),
+    )
+
+    result = agent.update(
+        state,
+        jnp.array(1.0, dtype=jnp.float32),
+        jnp.array([0.0, 1.0], dtype=jnp.float32),
+        next_action=jnp.array(0, dtype=jnp.int32),
+        discount=jnp.array(0.7, dtype=jnp.float32),
+    )
+
+    # delta = reward + outgoing_gamma * Q(next) - Q(previous)
+    chex.assert_trees_all_close(result.td_error, jnp.array(0.85, dtype=jnp.float32))
+    # e = incoming_gamma * lambda * previous_e + grad Q(previous)
+    chex.assert_trees_all_close(
+        result.state.q_trace_weights,
+        jnp.array([[1.4, 0.0]], dtype=jnp.float32),
+    )
+    chex.assert_trees_all_equal(
+        result.state.previous_discount,
+        jnp.array(0.7, dtype=jnp.float32),
+    )
+
+
 def test_differential_sarsa_array_runner_uses_transition_discounts() -> None:
     """The array runner forwards each discount; omission retains gamma=1."""
     agent = DifferentialSARSAAgent(
