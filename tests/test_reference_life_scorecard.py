@@ -7,6 +7,7 @@ import dataclasses
 import json
 import math
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -418,6 +419,65 @@ def test_new_json_publication_is_canonical_and_refuses_overwrite(tmp_path: Path)
     ).encode("utf-8") + b"\n"
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         write_new_json(destination, {"different": math.pi})
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "O_TMPFILE"),
+    reason="write_new_json publishes through Linux O_TMPFILE and linkat(AT_EMPTY_PATH)",
+)
+def test_new_json_publication_rejects_a_zero_length_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "plan.json"
+    calls = 0
+
+    def zero_then_fail(file_fd: int, data: memoryview) -> int:
+        del file_fd, data
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return 0
+        raise RuntimeError("publisher retried after a zero-length write")
+
+    monkeypatch.setattr(scorecard.os, "write", zero_then_fail)
+    with pytest.raises(OSError, match="made no progress"):
+        write_new_json(destination, build_development_plan().to_payload())
+    assert not destination.exists()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "O_TMPFILE"),
+    reason="write_new_json publishes through Linux O_TMPFILE and linkat(AT_EMPTY_PATH)",
+)
+def test_new_json_publication_durably_orders_mode_and_directory_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "plan.json"
+    events: list[str] = []
+    real_fsync = os.fsync
+    real_fchmod = os.fchmod
+    real_link = scorecard._link_unnamed_file
+
+    def tracking_fsync(file_fd: int) -> None:
+        kind = "directory" if stat.S_ISDIR(os.fstat(file_fd).st_mode) else "file"
+        events.append(f"fsync_{kind}")
+        real_fsync(file_fd)
+
+    def tracking_fchmod(file_fd: int, mode: int) -> None:
+        events.append("fchmod")
+        real_fchmod(file_fd, mode)
+
+    def tracking_link(file_fd: int, parent_fd: int, name: str) -> None:
+        events.append("link")
+        real_link(file_fd, parent_fd, name)
+
+    monkeypatch.setattr(scorecard.os, "fsync", tracking_fsync)
+    monkeypatch.setattr(scorecard.os, "fchmod", tracking_fchmod)
+    monkeypatch.setattr(scorecard, "_link_unnamed_file", tracking_link)
+
+    write_new_json(destination, build_development_plan().to_payload())
+
+    assert events == ["fsync_file", "fchmod", "fsync_file", "link", "fsync_directory"]
 
 
 @pytest.mark.skipif(
