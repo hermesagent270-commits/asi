@@ -86,3 +86,14 @@ def test_reference_life_scorecard_artifacts_and_receipt_bind_the_run() -> None:
         assert field in text
     assert "path: scorecard\n" not in text
     assert "scorecard/run-receipt.v1.json" in text
+
+
+def test_reference_life_scorecard_receipt_preserves_canonical_digests() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'plan_payload = json.loads((root / "plan.json").read_bytes())' in text
+    assert 'artifact_payload = json.loads((root / "artifact.json").read_bytes())' in text
+    assert '"plan_sha256": plan_payload["plan_sha256"]' in text
+    assert '"artifact_sha256": artifact_payload["artifact_sha256"]' in text
+    assert '"plan_sha256": inventory[0]["sha256"]' not in text
+    assert '"artifact_sha256": inventory[1]["sha256"]' not in text

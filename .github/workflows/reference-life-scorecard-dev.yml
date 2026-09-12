@@ -222,6 +222,8 @@ jobs:
                   "sha256": hashlib.sha256(raw).hexdigest(),
               }
 
+          plan_payload = json.loads((root / "plan.json").read_bytes())
+          artifact_payload = json.loads((root / "artifact.json").read_bytes())
           inventory = [record(path) for path in [root / "plan.json", root / "artifact.json", *shards]]
           canonical_inventory = json.dumps(
               inventory, sort_keys=True, separators=(",", ":"), ensure_ascii=True
@@ -257,8 +259,8 @@ jobs:
               "result": {
                   "file_count": len(inventory),
                   "shard_count": len(shards),
-                  "plan_sha256": inventory[0]["sha256"],
-                  "artifact_sha256": inventory[1]["sha256"],
+                  "plan_sha256": plan_payload["plan_sha256"],
+                  "artifact_sha256": artifact_payload["artifact_sha256"],
                   "campaign_inventory_sha256": hashlib.sha256(canonical_inventory).hexdigest(),
                   "inventory": inventory,
               },
