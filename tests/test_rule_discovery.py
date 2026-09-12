@@ -772,6 +772,47 @@ class TestExpandedMechanisms:
             assert moved[klass] == pytest.approx(0.0, abs=1e-8)
         assert float(new_state.nb_count[2]) == pytest.approx(1.0)
 
+    def test_nb_vote_preserves_finite_unbatched_accuracy_at_large_scale(self) -> None:
+        import jax
+
+        config = self._flagless_config()
+        config["nb_member"] = 1.0
+        genome = jnp.asarray(genome_from_config(config))
+        tiny = IPMNISTConfig(
+            n_tasks=1, task_length=1, input_dim=3, hidden1=2, hidden2=2, n_classes=3
+        )
+        params = jax.tree.map(jnp.zeros_like, init_mlp_params(jr.key(17), tiny))
+        params["b3"] = jnp.asarray([-3.0e37, 0.0, 6.1468536e36], jnp.float32)
+        state = init_rule_state(params)
+        mean_by_class = jnp.asarray([1.9730208e18, 1.8117479e18, 3.9466615e18])
+        state = dataclasses.replace(
+            state,
+            utility=jax.tree.map(jnp.ones_like, state.utility),
+            nb_mean=jnp.repeat(mean_by_class[:, None], tiny.input_dim, axis=1),
+            member_acc=jnp.asarray([1.0, 0.0, 1.0], jnp.float32),
+        )
+        reference_scores = (
+            np.asarray(params["b3"], dtype=np.float64)
+            - 0.5
+            * np.sum(np.asarray(state.nb_mean, dtype=np.float64) ** 2, axis=1)
+            / tiny.input_dim
+        )
+        assert int(np.argmax(reference_scores)) == 2
+
+        # Keep this row unbatched: vmap changes XLA's lowering and can mask
+        # the scaled-log-softmax contraction defect this regression exercises.
+        new_params, _, correct, loss = jax.jit(rule_step)(
+            genome,
+            params,
+            state,
+            jnp.zeros((tiny.input_dim,), jnp.float32),
+            jnp.asarray(2, jnp.int32),
+        )
+
+        assert float(correct) == 1.0
+        assert bool(jnp.isfinite(loss))
+        assert all(bool(jnp.all(jnp.isfinite(value))) for value in new_params.values())
+
     def test_lr_anneal_fast_when_surprised_slow_when_calm(self) -> None:
         config = self._flagless_config()
         config["lr_anneal"] = 1.0
