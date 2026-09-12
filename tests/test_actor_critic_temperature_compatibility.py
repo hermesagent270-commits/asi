@@ -1,4 +1,4 @@
-"""Ordinary temperature policies retain the established float32 evaluation order."""
+"""Temperature scaling stays finite without changing exact-scale policies."""
 
 import jax
 import jax.numpy as jnp
@@ -9,9 +9,9 @@ import pytest
 from alberta_framework.core.actor_critic import ActorCriticAgent, ActorCriticConfig
 
 
-@pytest.mark.parametrize("temperature", [0.001, 0.01, 0.25, 0.3, 0.7, 0.99, 1.0, 3.0])
+@pytest.mark.parametrize("temperature", [0.25, 0.5, 1.0, 2.0, 4.0])
 @pytest.mark.parametrize("n_actions", [2, 5])
-def test_finite_scaled_policy_retains_direct_softmax_bits(
+def test_power_of_two_temperature_retains_direct_softmax_bits(
     temperature: float, n_actions: int
 ) -> None:
     agent = ActorCriticAgent(ActorCriticConfig(n_actions=n_actions, temperature=temperature))
@@ -27,6 +27,30 @@ def test_finite_scaled_policy_retains_direct_softmax_bits(
         jax.vmap(lambda row: agent.policy(state.replace(actor_bias=row), observations))
     )
     np.testing.assert_array_equal(candidate_policy(logits), direct_policy(logits))
+
+
+@pytest.mark.parametrize(
+    ("logits", "temperature"),
+    [
+        ([2e9, 0.0], 0.7),
+        ([1e20, 1e20 * (1.0 + 2.0**-23)], 0.3),
+        ([1e38, 1.0, -1e38], 0.99),
+        ([1.0, -2.0, 0.5], 0.7),
+    ],
+)
+def test_non_power_of_two_cooling_matches_eager_policy(
+    logits: list[float], temperature: float
+) -> None:
+    """Unbatched compilation must preserve the finite eager policy."""
+    agent = ActorCriticAgent(ActorCriticConfig(n_actions=len(logits), temperature=temperature))
+    state = agent.init(1, jr.key(199)).replace(actor_bias=jnp.asarray(logits, dtype=jnp.float32))
+    observation = jnp.zeros(1, dtype=jnp.float32)
+    with jax.disable_jit(True):
+        expected = jax.nn.softmax(state.actor_bias / temperature)
+
+    actual = agent.policy(state, observation)
+    assert bool(jnp.all(jnp.isfinite(actual)))
+    np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=0.0)
 
 
 @pytest.mark.parametrize("bad_logit", [jnp.nan, jnp.inf, -jnp.inf])
@@ -127,6 +151,36 @@ def test_cooling_overflow_reached_by_learning_keeps_next_transition() -> None:
     np.testing.assert_array_equal(
         agent.policy(second.state, next_observation), jax.nn.one_hot(action, 2)
     )
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_non_power_of_two_cooling_reached_by_learning_remains_finite(seed: int) -> None:
+    """Compiled policy evaluation must not turn a learned finite policy into NaN."""
+    agent = ActorCriticAgent(
+        ActorCriticConfig(
+            n_actions=2,
+            temperature=0.7,
+            actor_step_size=0.1,
+            critic_step_size=0.1,
+            actor_lamda=0.0,
+            critic_lamda=0.0,
+        )
+    )
+    observation = jnp.array([1.5e5], dtype=jnp.float32)
+    zero_observation = jnp.zeros(1, dtype=jnp.float32)
+    state, _, _ = agent.start(agent.init(1, jr.key(seed)), observation)
+    first = agent.update(state, jnp.float32(1.0), zero_observation)
+    assert bool(first.update_applied)
+
+    logits = first.state.actor_weights @ observation + first.state.actor_bias
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert bool(jnp.all(jnp.isfinite(logits / agent.config.temperature)))
+
+    policy = agent.policy(first.state, observation)
+    assert bool(jnp.all(jnp.isfinite(policy)))
+    assert int(jnp.argmax(policy)) == int(jnp.argmax(logits))
+    second = agent.update(first.state, jnp.float32(0.0), observation)
+    assert bool(second.update_applied)
 
 
 @pytest.mark.parametrize("temperature", [0.25, 2.0**-127, 2.0**-149])
