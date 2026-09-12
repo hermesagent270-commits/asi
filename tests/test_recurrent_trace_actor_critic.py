@@ -1208,6 +1208,69 @@ def test_action_sampling_uses_high_dynamic_range_tempered_logits(
     )
 
 
+def test_finite_policy_logits_remain_usable_at_minimum_temperature() -> None:
+    config = _small_config(
+        actor_alpha=0.0,
+        critic_alpha=0.0,
+        entropy_coefficient=0.0,
+        temperature=float(np.finfo(np.float32).tiny),
+    )
+    agent = RecurrentTraceActorCriticAgent(config)
+    state, _, _ = agent.start(
+        agent.init(feature_dim=2, key=jr.key(341)),
+        jnp.asarray((0.2, -0.4), dtype=jnp.float32),
+    )
+    logits = jnp.asarray((2.0, 4.0, 3.0), dtype=jnp.float32)
+    state = state.replace(
+        actor_params=state.actor_params._replace(
+            head_weights=jnp.zeros_like(state.actor_params.head_weights),
+            head_bias=logits,
+        ),
+        last_action=jnp.asarray(1, dtype=jnp.int32),
+    )
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert not bool(jnp.all(jnp.isfinite(logits / config.temperature)))
+
+    policy = agent.policy(state)
+    action, next_key, sampled_policy = agent.select_action(state)
+    result = agent.update(
+        state.replace(rng_key=next_key),
+        jnp.asarray(0.25, dtype=jnp.float32),
+        jnp.asarray((-0.1, 0.3), dtype=jnp.float32),
+    )
+
+    expected = jnp.asarray((0.0, 1.0, 0.0), dtype=jnp.float32)
+    assert jnp.array_equal(policy, expected)
+    assert jnp.array_equal(sampled_policy, expected)
+    assert int(action) == 1
+    assert bool(result.update_applied)
+    assert bool(jnp.isfinite(result.entropy))
+    assert jnp.array_equal(result.policy, expected)
+    _assert_tree_finite(result)
+
+
+def test_large_temperature_preserves_finite_opposite_logit_separation() -> None:
+    config = _small_config(temperature=1e38)
+    agent = RecurrentTraceActorCriticAgent(config)
+    state = agent.init(feature_dim=2, key=jr.key(342))
+    logits = jnp.asarray((3e38, -3e38, 0.0), dtype=jnp.float32)
+    state = state.replace(
+        actor_params=state.actor_params._replace(
+            head_weights=jnp.zeros_like(state.actor_params.head_weights),
+            head_bias=logits,
+        )
+    )
+
+    probabilities = agent.policy(state)
+
+    _assert_tree_finite(probabilities)
+    np.testing.assert_allclose(
+        probabilities,
+        jax.nn.softmax(jnp.asarray((3.0, -3.0, 0.0), dtype=jnp.float32)),
+        rtol=1e-5,
+    )
+
+
 def test_entropy_diagnostic_uses_objective_log_softmax_path() -> None:
     config = _small_config(
         actor_alpha=0.0,
