@@ -666,30 +666,28 @@ class ActorCriticAgent:
         if temperature == 1.0:
             return jax.nn.softmax(logits)
         if temperature < 1.0:
-            # Select unscaled inputs so ordinary division and softmax retain
-            # their evaluation order, including inside the compiled update.
-            # For a normal temperature, finite inputs yield an invalid policy
-            # exactly when the scaled maximum is infinite. Probe that scalar
-            # without evaluating an overflowing softmax (also safe in the NaN
-            # debugger). Negative infinite nonmaxima already have zero mass.
+            # Center on both sides of the scale. XLA may otherwise recompute a
+            # non-power-of-two multiply inside the max and exponential fusions;
+            # a contracted multiply-subtract can then expose the product's
+            # rounding residual at the argmax and turn finite logits into NaN.
+            # Both shifts are exact policy invariances and stop-gradient keeps
+            # the established softmax derivative.
             maximum = jax.lax.stop_gradient(jnp.max(logits))
-            if temperature >= float(np.finfo(np.float32).tiny):
-                overflowed = jnp.all(jnp.isfinite(logits)) & ~jnp.isfinite(maximum / temperature)
-                selected = jnp.where(overflowed, logits - maximum, logits)
-                return jax.nn.softmax(selected / temperature)
-
-            # Subnormal divisors can flush to zero, so use normal multipliers
-            # directly instead of probing the invalid division first.
-            mantissa, exponent = math.frexp(temperature)
             centered = logits - maximum
-            # Multiplication keeps the derivative at zero, unlike ldexp.
-            # Split large powers so even a subnormal temperature never
-            # creates an infinite multiplier for a tied maximum logit.
-            first_shift = min(-exponent, 126)
-            scaled: Array = jax.lax.optimization_barrier(  # type: ignore[no-untyped-call]
-                centered * math.ldexp(1.0, first_shift)
-            )
-            scaled = scaled * math.ldexp(1.0, -exponent - first_shift) / mantissa
+            if temperature >= float(np.finfo(np.float32).tiny):
+                scaled = centered / temperature
+            else:
+                # Subnormal divisors can flush to zero, so use normal
+                # multipliers instead. Split large powers so even a subnormal
+                # temperature never creates an infinite multiplier for a tied
+                # maximum logit.
+                mantissa, exponent = math.frexp(temperature)
+                first_shift = min(-exponent, 126)
+                scaled = jax.lax.optimization_barrier(  # type: ignore[no-untyped-call]
+                    centered * math.ldexp(1.0, first_shift)
+                )
+                scaled = scaled * math.ldexp(1.0, -exponent - first_shift) / mantissa
+            scaled = scaled - jax.lax.stop_gradient(jnp.max(scaled))
             return jax.nn.softmax(scaled)
         if temperature <= math.ldexp(1.0, 126):
             return jax.nn.softmax(logits / temperature)
