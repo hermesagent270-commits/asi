@@ -260,6 +260,19 @@ def action_log_likelihoods(
     )
 
 
+def _temperature_scaled_logits(logits: Array, temperature: float) -> Array:
+    """Scale logits without exposing a rounded argmax to softmax fusion."""
+    if temperature > 1.0:
+        # Halving both operands is exact and prevents centering opposite finite
+        # extremes from overflowing before a large temperature brings them in range.
+        logits = logits * 0.5
+        temperature *= 0.5
+    # Both shifts preserve softmax/log-softmax while keeping division in range.
+    centered = logits - jax.lax.stop_gradient(jnp.max(logits))
+    scaled = centered / temperature
+    return scaled - jax.lax.stop_gradient(jnp.max(scaled))
+
+
 def clipped_importance_ratios(
     target_probabilities: Array,
     behavior_probabilities: Array,
@@ -692,7 +705,7 @@ class BehaviorModel:
     ) -> Float[Array, " n_actions"]:
         """Predict behavior action probabilities for one feature vector."""
         logits = self.predict_logits(state, observation)
-        return jax.nn.softmax(logits / self._config.temperature)
+        return jax.nn.softmax(_temperature_scaled_logits(logits, self._config.temperature))
 
     def action_probability(
         self,
@@ -760,10 +773,10 @@ class BehaviorModel:
         cfg = self._config
         obs = jnp.asarray(observation, dtype=jnp.float32)
         logits = state.weights @ obs + state.bias
-        scaled_logits = logits / cfg.temperature
+        scaled_logits = _temperature_scaled_logits(logits, cfg.temperature)
         probabilities = jax.nn.softmax(scaled_logits)
         one_hot = jax.nn.one_hot(action_id, cfg.n_actions, dtype=jnp.float32)
-        loss = -jnp.sum(one_hot * jax.nn.log_softmax(scaled_logits))
+        loss = -jax.nn.log_softmax(scaled_logits)[action_id]
         logit_gradient = (probabilities - one_hot) / cfg.temperature
         gradient = state.weights.T @ logit_gradient
         gradient_norm = jnp.linalg.norm(gradient)
@@ -832,7 +845,8 @@ class BehaviorModel:
         cfg = self._config
         obs = jnp.asarray(observation, dtype=jnp.float32)
         logits = state.weights @ obs + state.bias
-        probabilities = jax.nn.softmax(logits / cfg.temperature)
+        scaled_logits = _temperature_scaled_logits(logits, cfg.temperature)
+        probabilities = jax.nn.softmax(scaled_logits)
         one_hot = jax.nn.one_hot(action_id, cfg.n_actions, dtype=jnp.float32)
 
         logit_error = (one_hot - probabilities) / cfg.temperature
