@@ -60,6 +60,19 @@ _MAXIMUM_THETA_LOG = math.log(2.0 * math.pi)
 _INT32_MAX = 2**31 - 1
 
 
+def _temperature_scaled_logits(logits: Array, temperature: float) -> Array:
+    """Scale logits without exposing a rounded argmax to softmax fusion."""
+    if temperature > 1.0:
+        # Halving both operands is exact and prevents centering opposite finite
+        # extremes from overflowing before a large temperature brings them in range.
+        logits = logits * 0.5
+        temperature *= 0.5
+    # Both shifts preserve softmax/log-softmax while keeping division in range.
+    centered = logits - jax.lax.stop_gradient(jnp.max(logits))
+    scaled = centered / temperature
+    return scaled - jax.lax.stop_gradient(jnp.max(scaled))
+
+
 def _validate_normal_float32_config_value(name: str, value: float) -> None:
     """Reject nonzero configuration values that are not normal float32 values.
 
@@ -2033,7 +2046,7 @@ class RecurrentTraceActorCriticAgent:
     ) -> Array:
         """Return the softmax policy of the already-advanced actor state."""
         logits = self._network_output(state.actor_params, state.actor_rtu_state)
-        return jax.nn.softmax(logits / self._config.temperature)
+        return jax.nn.softmax(_temperature_scaled_logits(logits, self._config.temperature))
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def value(
@@ -2053,7 +2066,7 @@ class RecurrentTraceActorCriticAgent:
     ) -> tuple[Array, Array, Array]:
         """Sample from the current recurrent policy without advancing it."""
         logits = self._network_output(state.actor_params, state.actor_rtu_state)
-        tempered_logits = logits / self._config.temperature
+        tempered_logits = _temperature_scaled_logits(logits, self._config.temperature)
         probabilities = jax.nn.softmax(tempered_logits)
         key, sample_key = jr.split(state.rng_key)
         action = jr.categorical(
@@ -2279,7 +2292,8 @@ class RecurrentTraceActorCriticAgent:
         entropy_sign = jax.lax.stop_gradient(jnp.sign(td_error))
 
         def policy_objective(logits: Array) -> Array:
-            log_probabilities = jax.nn.log_softmax(logits / self._config.temperature)
+            scaled_logits = _temperature_scaled_logits(logits, self._config.temperature)
+            log_probabilities = jax.nn.log_softmax(scaled_logits)
             probabilities = jnp.exp(log_probabilities)
             entropy = -jnp.sum(probabilities * log_probabilities)
             return (
@@ -2535,7 +2549,9 @@ class RecurrentTraceActorCriticAgent:
             state.actor_params,
             state.actor_rtu_state,
         )
-        current_log_policy = jax.nn.log_softmax(current_logits / self._config.temperature)
+        current_log_policy = jax.nn.log_softmax(
+            _temperature_scaled_logits(current_logits, self._config.temperature)
+        )
         current_policy = jnp.exp(current_log_policy)
         current_entropy = -jnp.sum(current_policy * current_log_policy)
 
