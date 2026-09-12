@@ -321,12 +321,15 @@ class RLSRewardModel:
             & jnp.isfinite(checked_error_ema)
         )
         inputs_valid = jnp.all(jnp.isfinite(x)) & jnp.isfinite(jnp.squeeze(target))
+        denominator_finite = jnp.isfinite(denominator)
         proposed_finite = (
             jnp.all(jnp.isfinite(next_weights))
             & jnp.all(jnp.isfinite(next_covariance))
             & jnp.isfinite(next_abs_error_ema)
         )
-        update_applied = source_finite & inputs_valid & proposed_finite
+        update_applied = (
+            source_finite & inputs_valid & denominator_finite & proposed_finite
+        )
         committed = jax.lax.cond(
             update_applied,
             lambda: next_state,

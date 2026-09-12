@@ -245,6 +245,30 @@ def test_rls_infinite_reward_on_zero_feature_does_not_poison_weights() -> None:
     assert bool(recovered.update_applied)
 
 
+def test_rls_overflowed_denominator_rejects_update_atomically() -> None:
+    """A non-finite RLS divisor must not masquerade as a zero-gain update."""
+    model = RLSRewardModel(
+        RLSRewardModelConfig(feature_dim=1, forgetting=1.0, ridge=10.0)
+    )
+    state = model.init()
+    features = jnp.array([1e20], dtype=jnp.float32)
+    reward = jnp.array(1e20, dtype=jnp.float32)
+
+    covariance_features = state.covariance @ features
+    denominator = jnp.asarray(1.0, dtype=jnp.float32) + jnp.dot(
+        features, covariance_features
+    )
+    assert bool(jnp.isinf(denominator))
+
+    result = model.update(state, features, reward)
+
+    assert not bool(result.update_applied)
+    chex.assert_trees_all_equal(result.state, state)
+    assert float(result.prediction) == 0.0
+    assert float(result.error) == 0.0
+    chex.assert_trees_all_equal(result.gain, jnp.zeros_like(result.gain))
+
+
 def test_zero_error_decay_does_not_multiply_inf_ema() -> None:
     """error_decay=0 times an infinite abs-error EMA is NaN."""
     model = RLSRewardModel(
