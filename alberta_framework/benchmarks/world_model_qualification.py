@@ -30,6 +30,7 @@ from alberta_framework.core.world_model import (
 
 WORLD_MODEL_SMOKE_SCHEMA = "asi.external_world_model_smoke.v1"
 _MAX_STEPS = 64
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 def _exact_int(value: object, *, name: str, minimum: int, maximum: int) -> int:
@@ -148,7 +149,7 @@ def run_native_world_model_smoke(*, seed: object = 0, steps: object = 8) -> Worl
     host_seed = _exact_int(seed, name="seed", minimum=0, maximum=2**32 - 1)
     host_steps = _exact_int(steps, name="steps", minimum=1, maximum=_MAX_STEPS)
     actions, transitions = _trace(host_steps)
-    keys = jr.split(jr.key(host_seed), 3)
+    keys = jr.split(jr.key(host_seed, impl=_PRNG_IMPLEMENTATION), 3)
     direct = ActionConditionedWorldModel(
         ActionConditionedWorldModelConfig(
             observation_dim=2,

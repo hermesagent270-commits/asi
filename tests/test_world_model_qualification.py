@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
+import jax
 import pytest
 
 from alberta_framework.benchmarks.world_model_qualification import (
@@ -33,6 +34,15 @@ def test_native_world_model_smoke_is_deterministic_matched_and_nonpromoting() ->
         assert arm.environment_steps == arm.model_updates == arm.model_queries == 4
         assert arm.persistent_bytes > 0
         assert len(arm.prequential_losses) == 4
+
+
+def test_native_world_model_smoke_ignores_ambient_prng_default() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_native_world_model_smoke(seed=17, steps=4)
+    with jax.default_prng_impl("rbg"):
+        actual = run_native_world_model_smoke(seed=17, steps=4)
+
+    assert actual == expected
 
 
 def test_native_world_model_smoke_retains_explicit_mechanism_off_arm() -> None:
