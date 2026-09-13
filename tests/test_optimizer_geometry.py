@@ -586,3 +586,21 @@ def test_flad_noise_component_rejects_a_destroyed_nonzero_gradient() -> None:
         flad_noise_component(delta, gradient)
     compiled = jax.jit(flad_noise_component)(delta, gradient)
     assert bool(jnp.all(jnp.isnan(compiled)))
+
+
+def test_flad_noise_component_preserves_a_recoverable_subnormal_gradient() -> None:
+    delta = jnp.asarray(np.array([1.0, -2.0, 0.5, 3.0], dtype=np.float16))
+    gradient = jnp.asarray(np.array([3e-8, -3e-8, 3e-8, -3e-8], dtype=np.float16))
+    assert bool(_nonzero_magnitude_bits(gradient))
+    assert float(jnp.max(jnp.abs(gradient))) > 0.0
+
+    for transaction in (
+        flad_noise_component_transaction,
+        jax.jit(flad_noise_component_transaction),
+    ):
+        safe, valid = transaction(delta, gradient)
+        assert bool(valid)
+        np.testing.assert_array_equal(
+            safe,
+            jnp.asarray(np.array([0.875, -1.875, 0.375, 3.125], dtype=np.float16)),
+        )
