@@ -53,6 +53,17 @@ def test_lane_is_deterministic_matched_nonpromoting_and_round_trips(lane_result)
     assert all(arm.negative_outcome_retained for arm in first.arms)
 
 
+def test_lane_ignores_ambient_prng_default() -> None:
+    protocol = _tiny_protocol()
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_action_conditioned_latent_lane(protocol)
+    with jax.default_prng_impl("rbg"):
+        actual = run_action_conditioned_latent_lane(protocol)
+
+    assert actual.identity == expected.identity
+    assert actual == expected
+
+
 def test_mechanism_off_has_exact_decision_off_transcript_parity(lane_result) -> None:
     result = lane_result
     for offset in range(0, len(result.arms), len(FROZEN_ARM_IDS)):
