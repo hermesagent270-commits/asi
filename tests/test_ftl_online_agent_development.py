@@ -60,6 +60,28 @@ def test_sparse_model_predict_and_update_are_jit_eager_numerically_equivalent() 
         )
 
 
+def test_development_lane_ignores_ambient_prng_default() -> None:
+    kwargs = {
+        "seed": FROZEN_SEEDS[0],
+        "steps_per_task": 2,
+        "planning_horizon": 1,
+    }
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_development_lane(**kwargs)
+    with jax.default_prng_impl("rbg"):
+        actual = run_development_lane(**kwargs)
+
+    assert actual.identity == expected.identity
+    for actual_arm, expected_arm in zip(actual.arms, expected.arms, strict=True):
+        assert dataclasses.replace(
+            actual_arm,
+            receipt=dataclasses.replace(actual_arm.receipt, elapsed_ns=0),
+        ) == dataclasses.replace(
+            expected_arm,
+            receipt=dataclasses.replace(expected_arm.receipt, elapsed_ns=0),
+        )
+
+
 @pytest.mark.parametrize("seed", [True, -1, 0, FROZEN_SEEDS[-1] + 1])
 def test_runner_rejects_hostile_or_unfrozen_seeds(seed: object) -> None:
     with pytest.raises(ValueError):

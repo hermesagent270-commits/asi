@@ -45,6 +45,7 @@ ACTION_DELTAS.flags.writeable = False
 MAX_STEPS_PER_TASK = 16
 _MPC_ENUMERATION_BUDGET = ScanBudget("FTL MPC enumeration", maximum_steps=4)
 MAX_PLANNING_HORIZON = _MPC_ENUMERATION_BUDGET.maximum_steps
+_PRNG_IMPLEMENTATION = "threefry2x32"
 WORKLOAD_REGISTRY = (
     ("arm_ids", ARM_IDS),
     ("action_deltas", ((1, 0), (-1, 0), (0, 1), (0, -1))),
@@ -218,7 +219,7 @@ def _run_arm(seed: int, steps: int, horizon: int, arm_id: str) -> ArmResult:
     model = SparseFTLWorldModel(
         SparseFTLWorldModelConfig(observation_dim=2, action_dim=4, projection_dim=4, bins=4)
     )
-    state = model.init(jr.key(seed))
+    state = model.init(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     initial_bytes = _tree_nbytes(state)
     updates = queries = candidates = 0
     errors: list[float] = []
@@ -367,7 +368,9 @@ def validate_result(value: object) -> DevelopmentResult:
     model = SparseFTLWorldModel(
         SparseFTLWorldModelConfig(observation_dim=2, action_dim=4, projection_dim=4, bins=4)
     )
-    expected_model_bytes = _tree_nbytes(model.init(jr.key(value.seed)))
+    expected_model_bytes = _tree_nbytes(
+        model.init(jr.key(value.seed, impl=_PRNG_IMPLEMENTATION))
+    )
     for arm in value.arms:
         expected_error_count = 0 if arm.arm_id == "privileged_dynamics_mpc" else expected_steps
         if len(arm.prequential_squared_errors) != expected_error_count:
