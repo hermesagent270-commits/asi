@@ -458,7 +458,10 @@ def _run_arm(protocol: COOMSmokeProtocol, seed: int, arm_id: str) -> COOMArmRece
             sparsity=0.0,
             use_layer_norm=False,
         )
-        state = agent.init(_OBSERVATION_BYTES + len(protocol.tasks), jr.key(seed))
+        state = agent.init(
+            _OBSERVATION_BYTES + len(protocol.tasks),
+            jr.key(seed, impl="threefry2x32"),
+        )
         persistent_agent_bytes = _tree_nbytes(state)
     policy_queries = 0
     for task_index, _task_name in enumerate(protocol.tasks):

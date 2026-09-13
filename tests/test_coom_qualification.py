@@ -109,6 +109,16 @@ def test_one_arm_replays_deterministically_without_external_runtime(
     assert first == second
 
 
+def test_sarsa_arm_is_independent_of_the_ambient_jax_prng_implementation() -> None:
+    protocol = COOMSmokeProtocol(steps_per_task=2)
+    seed = protocol.seeds[0]
+    with jax.default_prng_impl("threefry2x32"):
+        expected = _run_arm(protocol, seed, "native_sarsa_contract_control")
+    with jax.default_prng_impl("rbg"):
+        observed = _run_arm(protocol, seed, "native_sarsa_contract_control")
+    assert observed == expected
+
+
 @pytest.mark.parametrize(
     "changes, message",
     [
