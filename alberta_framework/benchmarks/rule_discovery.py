@@ -457,7 +457,13 @@ def _rms_mix(hidden: Array, f_rms: Array) -> Array:
 
 
 def _scaled_log_softmax(logits: Array, divisor: float) -> Array:
-    """Return a shift-invariant log-softmax after dividing finite logits."""
+    """Return a shift-invariant log-softmax after dividing finite logits.
+
+    The second centering is algebraically zero after the first one, but it is
+    intentional: XLA may reconstruct the scaled subtraction inside
+    ``log_softmax`` and expose the scale's rounding residual.  Materializing
+    both shift-invariant subtractions prevents both observed recomputations.
+    """
     centered = logits - jax.lax.stop_gradient(jnp.max(logits))
     scaled = centered / divisor
     scaled = scaled - jax.lax.stop_gradient(jnp.max(scaled))
