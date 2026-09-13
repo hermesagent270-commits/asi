@@ -146,6 +146,7 @@ _STREAM_DOMAIN = 101
 _INIT_DOMAIN = 202
 _STEP_DOMAIN = 303
 _BAYES_DOMAIN = 404
+_GAUSSIAN_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 def _is_registered_subclass(cls: type, abc: type) -> bool:
@@ -481,7 +482,7 @@ def _stream_keys(
     if type(config) is not MicroStreamConfig:
         raise TypeError("config must be a MicroStreamConfig")
     seed = require_jax_seed(seed, name="seed")
-    root = jr.fold_in(jr.key(seed), _STREAM_DOMAIN)
+    root = jr.fold_in(jr.key(seed, impl=_GAUSSIAN_PRNG_IMPLEMENTATION), _STREAM_DOMAIN)
     key_geometry, key_labels, key_components, key_noise, key_regime = jr.split(root, 5)
     return key_geometry, key_labels, key_components, key_noise, key_regime
 
@@ -756,7 +757,7 @@ def bayes_reference(
     )
     component_means, dim_sigma = class_geometry(config, seed)
     _require_finite_geometry(component_means, dim_sigma)
-    key = jr.fold_in(jr.key(seed), _BAYES_DOMAIN)
+    key = jr.fold_in(jr.key(seed, impl=_GAUSSIAN_PRNG_IMPLEMENTATION), _BAYES_DOMAIN)
     n_correct = 0
     drawn = 0
     chunk_index = 0
@@ -1051,8 +1052,12 @@ def run_micro_arm(
         hidden2=hidden2,
         n_classes=config.n_classes,
     )
-    key_init = jr.fold_in(jr.key(jnp.uint32(seed)), _INIT_DOMAIN)
-    key_steps = jr.fold_in(jr.key(jnp.uint32(seed)), _STEP_DOMAIN)
+    key_init = jr.fold_in(
+        jr.key(jnp.uint32(seed), impl=_GAUSSIAN_PRNG_IMPLEMENTATION), _INIT_DOMAIN
+    )
+    key_steps = jr.fold_in(
+        jr.key(jnp.uint32(seed), impl=_GAUSSIAN_PRNG_IMPLEMENTATION), _STEP_DOMAIN
+    )
     params = init_mlp_params(key_init, net)
     init_fn, step_fn = spec.factory(dict(spec.hyperparameters))
     state = init_fn(params)

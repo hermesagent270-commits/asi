@@ -595,6 +595,18 @@ class TestGenerator:
             np.asarray(a.permutations), np.asarray(b.permutations)
         )
 
+    def test_stream_ignores_ambient_prng_default(self):
+        with jax.default_prng_impl("threefry2x32"):
+            expected = generate_stream(TINY, seed=17)
+        with jax.default_prng_impl("rbg"):
+            actual = generate_stream(TINY, seed=17)
+
+        for field in dataclasses.fields(expected):
+            np.testing.assert_array_equal(
+                np.asarray(getattr(actual, field.name)),
+                np.asarray(getattr(expected, field.name)),
+            )
+
     def test_seeds_differ(self):
         a = generate_stream(TINY, seed=0)
         b = generate_stream(TINY, seed=1)
@@ -770,6 +782,14 @@ class TestBayesReference:
         assert a.mc_sem == pytest.approx(
             math.sqrt(a.bayes_accuracy * (1.0 - a.bayes_accuracy) / a.n_samples)
         )
+
+    def test_reference_ignores_ambient_prng_default(self):
+        with jax.default_prng_impl("threefry2x32"):
+            expected = bayes_reference(TINY, seed=17, n_samples=1_000)
+        with jax.default_prng_impl("rbg"):
+            actual = bayes_reference(TINY, seed=17, n_samples=1_000)
+
+        assert actual == expected
 
     def test_bayes_rule_invariant_under_regime_transforms(self):
         """The reference applies to every regime of all four families.
@@ -1085,6 +1105,21 @@ class TestRunner:
         a = run_micro_arm(TINY, "naive_bayes", seed=1, hidden1=8, hidden2=6)
         b = run_micro_arm(TINY, "naive_bayes", seed=1, hidden1=8, hidden2=6)
         np.testing.assert_array_equal(a.per_regime_accuracy, b.per_regime_accuracy)
+
+    def test_run_ignores_ambient_prng_default(self):
+        with jax.default_prng_impl("threefry2x32"):
+            expected = run_micro_arm(TINY, "sgd_raw", seed=17, hidden1=8, hidden2=6)
+        with jax.default_prng_impl("rbg"):
+            actual = run_micro_arm(TINY, "sgd_raw", seed=17, hidden1=8, hidden2=6)
+
+        np.testing.assert_array_equal(
+            actual.per_regime_accuracy, expected.per_regime_accuracy
+        )
+        np.testing.assert_array_equal(actual.per_regime_loss, expected.per_regime_loss)
+        np.testing.assert_array_equal(
+            actual.per_regime_plasticity, expected.per_regime_plasticity
+        )
+        assert actual.overall_accuracy == expected.overall_accuracy
 
     def test_learning_happens_on_easy_stream(self):
         config = tiny(
