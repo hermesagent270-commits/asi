@@ -564,3 +564,25 @@ def test_flad_noise_component_scale_freedom() -> None:
     )
     assert bool(valid_zero)
     np.testing.assert_array_equal(safe_zero, jnp.asarray(delta))
+
+
+def test_flad_noise_component_rejects_a_destroyed_nonzero_gradient() -> None:
+    delta = jnp.asarray(np.array([1.0, -2.0, 0.5, 3.0], dtype=np.float32))
+    gradient = jnp.asarray(
+        np.array([2.938736e-39, -1.469368e-39, 7.34684e-40, -3.67342e-40], dtype=np.float32)
+    )
+    assert bool(_nonzero_magnitude_bits(gradient))
+    assert float(jnp.max(jnp.abs(gradient))) == 0.0
+
+    for transaction in (
+        flad_noise_component_transaction,
+        jax.jit(flad_noise_component_transaction),
+    ):
+        safe, valid = transaction(delta, gradient)
+        assert not bool(valid)
+        np.testing.assert_array_equal(safe, jnp.zeros_like(delta))
+
+    with pytest.raises(ValueError, match="FLAD decomposition"):
+        flad_noise_component(delta, gradient)
+    compiled = jax.jit(flad_noise_component)(delta, gradient)
+    assert bool(jnp.all(jnp.isnan(compiled)))

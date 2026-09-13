@@ -245,12 +245,20 @@ def spectral_matrix_sign(matrix: Array, *, steps: int = 5) -> Array:
 
 
 def flad_noise_component_transaction(perturbation: Array, gradient: Array) -> tuple[Array, Array]:
-    """Return a finite FLAD noise component and caller-visible validity bit."""
+    """Return a finite FLAD noise component and caller-visible validity bit.
+
+    A nonzero gradient whose entries the backend flushes entirely cannot be
+    treated as the exact-zero mechanism-off case.  No floating-point predicate
+    can distinguish those inputs on such a backend, so retain the magnitude-bit
+    witness before the projection arithmetic and fail closed when it disagrees
+    with the arithmetic maximum.
+    """
     delta = _trusted_array(perturbation, name="perturbation")
     direction = _trusted_array(gradient, name="gradient")
     if delta.shape != direction.shape or delta.ndim != 1 or delta.size < 1:
         raise ValueError("perturbation and gradient must be non-empty equal-width vectors")
     max_abs = jnp.max(jnp.abs(direction))
+    destroyed = _nonzero_magnitude_bits(direction) & (max_abs == 0.0)
     _, exponent = jnp.frexp(max_abs)
     scaled = jnp.ldexp(direction, -exponent)
     squared_norm = jnp.vdot(scaled, scaled).real
@@ -263,6 +271,7 @@ def flad_noise_component_transaction(perturbation: Array, gradient: Array) -> tu
     valid = (
         jnp.all(jnp.isfinite(delta))
         & jnp.all(jnp.isfinite(direction))
+        & jnp.logical_not(destroyed)
         & jnp.isfinite(squared_norm)
         & jnp.isfinite(numerator)
         & jnp.isfinite(coefficient)
