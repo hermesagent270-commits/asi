@@ -2768,11 +2768,23 @@ def _validate_run_record(
         if failure["stage"] in {"build", "init"} and failure["accepted_events"] != 0:
             raise ValueError(f"{path} pre-step failure cannot claim accepted events")
         if failure["stage"] in {"build", "init"} and (
-            optional_durations["setup_seconds"] is not None
-            or optional_durations["cold_step_seconds"] is not None
-            or warmed_count != 0
+            optional_durations["cold_step_seconds"] is not None or warmed_count != 0
         ):
-            raise ValueError(f"{path}.telemetry claims work after a pre-step failure")
+            raise ValueError(f"{path}.telemetry claims step work before the step stage")
+        if failure["stage"] == "build" and optional_durations["setup_seconds"] is not None:
+            raise ValueError(f"{path}.telemetry claims setup completed after a build failure")
+        if failure["stage"] == "step":
+            accepted_events = failure["accepted_events"]
+            cold_step_recorded = optional_durations["cold_step_seconds"] is not None
+            if optional_durations["setup_seconds"] is None:
+                raise ValueError(f"{path}.telemetry omits setup before a step failure")
+            if not cold_step_recorded and warmed_count != 0:
+                raise ValueError(f"{path}.telemetry records warmed work without a cold step")
+            timed_step_count = int(cold_step_recorded) + warmed_count
+            if timed_step_count not in {accepted_events, accepted_events + 1}:
+                raise ValueError(
+                    f"{path}.telemetry timed step count differs from accepted events"
+                )
         if failure["stage"] == "build":
             if any(
                 resolved[field] is not None
