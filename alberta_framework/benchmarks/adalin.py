@@ -57,6 +57,7 @@ ADALIN_PROTOCOL = MappingProxyType(
 _MAX_ARRAY_ELEMENTS = 1_000_000
 _MAX_DATASET_ELEMENTS = 10_000_000
 _INT32_MAX = 2**31 - 1
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 def _trusted_float_array(value: object, *, name: str) -> Array:
@@ -253,7 +254,7 @@ def make_pmnist_schedule(config: AdaLinConfig, *, seed: int, input_dim: int) -> 
         raise ValueError("input_dim must be a positive bounded integer")
     if config.tasks * (input_dim + config.examples_per_task) > _MAX_DATASET_ELEMENTS:
         raise ValueError("schedule exceeds the 10000000-element allocation limit")
-    root = jr.key(resolved_seed)
+    root = jr.key(resolved_seed, impl=_PRNG_IMPLEMENTATION)
     pixel_root = jr.fold_in(root, 0x414441)
     example_root = jr.fold_in(root, 0x504D4E)
     pixels = jnp.stack(
@@ -294,7 +295,9 @@ def initialize_adalin_state(
     )
     if parameter_count > _MAX_DATASET_ELEMENTS:
         raise ValueError("model exceeds the 10000000-element allocation limit")
-    keys = jr.split(jr.fold_in(jr.key(seed), 0x494E49), 5)
+    keys = jr.split(
+        jr.fold_in(jr.key(seed, impl=_PRNG_IMPLEMENTATION), 0x494E49), 5
+    )
     weight1 = jr.normal(keys[0], (input_dim, width1), dtype=jnp.float32) * math.sqrt(
         2.0 / input_dim
     )
