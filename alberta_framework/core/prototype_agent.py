@@ -167,7 +167,7 @@ from alberta_framework.core.types import HordeSpec
 from alberta_framework.core.world_model import (
     ActionConditionedWorldModel,
     ActionConditionedWorldModelConfig,
-    _world_model_direct_state_scalars,
+    _action_conditioned_world_model_persistent_state_bytes,
 )
 from alberta_framework.core.world_model_ensemble import (
     WorldModelEnsemble,
@@ -187,7 +187,7 @@ _PROTOTYPE_V2_REPLAY_MIGRATION_TAG = 0x50525632
 _PROTOTYPE_FEATURE_LIFECYCLE_KEY_TAG = 0x50464C43
 _UINT32_MAX = 2**32 - 1
 _INT32_MAX = 2**31 - 1
-_DREAM_SCAN_WORD_BYTES = 8
+_DREAM_SCAN_INDEX_AND_RESULT_BYTES = 8
 
 # ---------------------------------------------------------------------------
 # Standalone utility
@@ -367,21 +367,15 @@ def _prototype_dream_iteration_byte_charge(
     one audited OaK update working set, one int32 scan index, and one float32
     TD-error result. This is deterministic resource accounting, not a claim
     about backend-specific hardware traffic or XLA buffer reuse.
+
+    The signed-int32 envelope protects the configured ``jax.lax.scan`` length,
+    its ``jnp.arange`` input, and returned TD-error vector under the same
+    configuration-derived resource convention as adjacent agent preflights.
     """
-    action_feature_dim = world_model.n_actions
-    if world_model.include_action_interactions:
-        action_feature_dim += world_model.observation_dim * world_model.n_actions
-    world_model_state_bytes = 4 * _world_model_direct_state_scalars(
-        observation_dim=world_model.observation_dim,
-        action_feature_dim=action_feature_dim,
-        hidden_sizes=world_model.hidden_sizes,
-        n_heads=world_model.observation_dim + 2,
-        outer_state_scalars=2 * world_model.observation_dim + 4,
-    )
     return (
         _oak_update_working_set_bytes(oak.stomp)
-        + world_model_state_bytes
-        + _DREAM_SCAN_WORD_BYTES
+        + _action_conditioned_world_model_persistent_state_bytes(world_model)
+        + _DREAM_SCAN_INDEX_AND_RESULT_BYTES
     )
 
 

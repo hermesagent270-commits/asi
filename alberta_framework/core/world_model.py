@@ -445,6 +445,22 @@ class ActionConditionedWorldModelConfig:
         return cls(**payload)
 
 
+def _action_conditioned_world_model_persistent_state_bytes(
+    config: ActionConditionedWorldModelConfig,
+) -> int:
+    """Return the complete persistent state size for a configured model."""
+    action_feature_dim = config.n_actions
+    if config.include_action_interactions:
+        action_feature_dim += config.observation_dim * config.n_actions
+    return 4 * _world_model_direct_state_scalars(
+        observation_dim=config.observation_dim,
+        action_feature_dim=action_feature_dim,
+        hidden_sizes=config.hidden_sizes,
+        n_heads=config.observation_dim + 2,
+        outer_state_scalars=2 * config.observation_dim + 4,
+    )
+
+
 @chex.dataclass(frozen=True)
 class ActionConditionedWorldModelState:
     """State for :class:`ActionConditionedWorldModel`."""

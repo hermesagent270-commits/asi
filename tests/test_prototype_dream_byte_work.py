@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from alberta_framework.core.oak import OaKConfig, _oak_update_working_set_bytes
+from alberta_framework.core import prototype_agent as prototype_agent_module
+from alberta_framework.core.oak import OaKConfig
 from alberta_framework.core.options import STOMPConfig, SubtaskSpec
-from alberta_framework.core.prototype_agent import PrototypeAgentConfig
-from alberta_framework.core.world_model import (
-    ActionConditionedWorldModelConfig,
-    _world_model_direct_state_scalars,
+from alberta_framework.core.prototype_agent import (
+    PrototypeAgentConfig,
+    _prototype_dream_iteration_byte_charge,
 )
+from alberta_framework.core.world_model import ActionConditionedWorldModelConfig
 
 _INT32_MAX = 2**31 - 1
-_SCAN_WORD_BYTES = 8
 
 
 def _oak(base_hidden_sizes: tuple[int, ...] = ()) -> OaKConfig:
@@ -40,27 +40,6 @@ def _world_model(
     )
 
 
-def _per_dream_byte_work(
-    oak: OaKConfig,
-    world_model: ActionConditionedWorldModelConfig,
-) -> int:
-    action_feature_dim = world_model.n_actions
-    if world_model.include_action_interactions:
-        action_feature_dim += world_model.observation_dim * world_model.n_actions
-    world_model_state_bytes = 4 * _world_model_direct_state_scalars(
-        observation_dim=world_model.observation_dim,
-        action_feature_dim=action_feature_dim,
-        hidden_sizes=world_model.hidden_sizes,
-        n_heads=world_model.observation_dim + 2,
-        outer_state_scalars=2 * world_model.observation_dim + 4,
-    )
-    return (
-        _oak_update_working_set_bytes(oak.stomp)
-        + world_model_state_bytes
-        + _SCAN_WORD_BYTES
-    )
-
-
 def test_int32_dream_count_is_rejected_by_configured_byte_work() -> None:
     with pytest.raises(ValueError, match="dream byte-work"):
         PrototypeAgentConfig(
@@ -70,7 +49,7 @@ def test_int32_dream_count_is_rejected_by_configured_byte_work() -> None:
         )
 
 
-def test_resource_valid_count_above_rejected_fixed_ceiling_remains_supported() -> None:
+def test_resource_valid_count_above_ten_thousand_remains_supported() -> None:
     config = PrototypeAgentConfig(
         oak=_oak(),
         world_model=_world_model(),
@@ -87,7 +66,7 @@ def test_direct_and_serialized_boundaries_follow_configured_byte_work(
 ) -> None:
     oak = _oak()
     world_model = _world_model(hidden_sizes)
-    per_dream = _per_dream_byte_work(oak, world_model)
+    per_dream = _prototype_dream_iteration_byte_charge(oak, world_model)
     last_fit = _INT32_MAX // per_dream
     first_overflow = last_fit + 1
 
@@ -111,21 +90,47 @@ def test_direct_and_serialized_boundaries_follow_configured_byte_work(
         PrototypeAgentConfig.from_config(payload)
 
 
+def _assert_configured_boundary(
+    oak: OaKConfig,
+    world_model: ActionConditionedWorldModelConfig,
+) -> int:
+    last_fit = _INT32_MAX // _prototype_dream_iteration_byte_charge(oak, world_model)
+    PrototypeAgentConfig(
+        oak=oak,
+        world_model=world_model,
+        n_dreams_per_step=last_fit,
+    )
+    with pytest.raises(ValueError, match="dream byte-work"):
+        PrototypeAgentConfig(
+            oak=oak,
+            world_model=world_model,
+            n_dreams_per_step=last_fit + 1,
+        )
+    return last_fit
+
+
 def test_larger_configured_states_reduce_the_supported_dream_count() -> None:
-    oak = _oak()
-    linear_last_fit = _INT32_MAX // _per_dream_byte_work(oak, _world_model())
-    mlp_last_fit = _INT32_MAX // _per_dream_byte_work(
-        oak, _world_model((64, 64))
+    linear_last_fit = _assert_configured_boundary(_oak(), _world_model())
+    mlp_last_fit = _assert_configured_boundary(_oak(), _world_model((64, 64)))
+    interaction_last_fit = _assert_configured_boundary(
+        _oak(), _world_model(include_action_interactions=True)
     )
-    interaction_last_fit = _INT32_MAX // _per_dream_byte_work(
-        oak,
-        _world_model(include_action_interactions=True),
-    )
-    larger_oak_last_fit = _INT32_MAX // _per_dream_byte_work(
-        _oak((64,)),
-        _world_model(),
-    )
+    larger_oak_last_fit = _assert_configured_boundary(_oak((64,)), _world_model())
 
     assert linear_last_fit > mlp_last_fit > 10_001
     assert linear_last_fit > interaction_last_fit > 10_001
     assert linear_last_fit > larger_oak_last_fit > 10_001
+
+
+def test_exact_signed_int32_byte_work_fit_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        prototype_agent_module,
+        "_prototype_dream_iteration_byte_charge",
+        lambda oak, world_model: _INT32_MAX,
+    )
+
+    PrototypeAgentConfig(oak=_oak(), world_model=_world_model(), n_dreams_per_step=1)
+    with pytest.raises(ValueError, match="dream byte-work"):
+        PrototypeAgentConfig(oak=_oak(), world_model=_world_model(), n_dreams_per_step=2)
