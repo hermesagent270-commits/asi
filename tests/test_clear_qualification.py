@@ -321,6 +321,49 @@ def test_manifest_rejects_hash_size_path_and_symlink_attacks(tmp_path: Path) -> 
         verify_dataset_manifest(json.dumps(payload).encode(), root=tmp_path)
 
 
+def test_manifest_rejects_archive_swapped_to_outside_symlink_before_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "approved"
+    root.mkdir()
+    archive = root / "clear100.zip"
+    archive.write_bytes(b"inside")
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(b"escape")
+    payload = {
+        "schema_version": SCHEMA,
+        "dataset": "clear100",
+        "protocol": "streaming-near-future",
+        "buckets": list(BUCKETS),
+        "years": list(range(2005, 2015)),
+        "samples_per_bucket": [1] * 10,
+        "archives": [
+            {
+                "role": "locally-acquired-clear100",
+                "path": archive.name,
+                "size_bytes": outside.stat().st_size,
+                "sha256": hashlib.sha256(outside.read_bytes()).hexdigest(),
+            }
+        ],
+        "provider_archive_checksums_published": False,
+    }
+    original_open = Path.open
+    swapped = False
+
+    def swap_before_open(path: Path, *args: object, **kwargs: object) -> object:
+        nonlocal swapped
+        if path == archive and not swapped:
+            swapped = True
+            archive.unlink()
+            archive.symlink_to(outside)
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", swap_before_open)
+
+    with pytest.raises(ClearQualificationError, match="archive"):
+        verify_dataset_manifest(json.dumps(payload).encode(), root=root)
+
+
 def test_manifest_rejects_duplicate_paths_and_unknown_fields(tmp_path: Path) -> None:
     payload = json.loads(_manifest(tmp_path))
     payload["archives"].append({**payload["archives"][0], "role": "duplicate"})
@@ -450,4 +493,3 @@ def test_decode_accepts_shallow_object() -> None:
 def test_decode_still_rejects_invalid_json() -> None:
     with pytest.raises(ClearQualificationError, match="not valid JSON|JSON"):
         _decode(b"{", limit=1 << 20, label="dataset manifest")
-

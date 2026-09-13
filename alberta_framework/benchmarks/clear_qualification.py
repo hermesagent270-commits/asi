@@ -267,6 +267,60 @@ def _safe_relative_path(value: object) -> str:
     return text
 
 
+def _archive_sha256(path: Path, *, root: Path, expected_size: int) -> str:
+    """Hash one regular in-root file through the identity that was checked."""
+    try:
+        before = path.lstat()
+        resolved_before = path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ClearQualificationError("archive metadata is unavailable") from exc
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or not stat.S_ISREG(before.st_mode)
+        or not resolved_before.is_relative_to(root)
+    ):
+        raise ClearQualificationError("archive must be a regular file below the dataset root")
+    if before.st_size != expected_size:
+        raise ClearQualificationError("archive size does not match the manifest")
+
+    descriptor: int | None = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or (opened.st_dev, opened.st_ino, opened.st_size)
+            != (before.st_dev, before.st_ino, before.st_size)
+        ):
+            raise ClearQualificationError("archive changed before its verified read")
+        digest = hashlib.sha256()
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = None
+            while chunk := stream.read(1 << 20):
+                digest.update(chunk)
+            after = os.fstat(stream.fileno())
+        final = path.lstat()
+        resolved_after = path.resolve(strict=True)
+    except ClearQualificationError:
+        raise
+    except (OSError, RuntimeError) as exc:
+        raise ClearQualificationError("archive could not be read safely") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+    opened_identity = (opened.st_dev, opened.st_ino, opened.st_size)
+    if (
+        (after.st_dev, after.st_ino, after.st_size) != opened_identity
+        or (final.st_dev, final.st_ino, final.st_size) != opened_identity
+        or not stat.S_ISREG(final.st_mode)
+        or not resolved_after.is_relative_to(root)
+    ):
+        raise ClearQualificationError("archive changed during its verified read")
+    return digest.hexdigest()
+
+
 def verify_dataset_manifest(raw: bytes, *, root: Path) -> ClearDatasetReceipt:
     """Verify bounded local archive identities; never fetch or extract them."""
     if type(raw) is not bytes or not isinstance(root, Path):
@@ -318,19 +372,7 @@ def verify_dataset_manifest(raw: bytes, *, root: Path) -> ClearDatasetReceipt:
         size = _exact_int(item["size_bytes"], "archive size", maximum=1 << 50)
         digest = _sha256(item["sha256"], "archive sha256")
         path = root_resolved / path_text
-        if (
-            path.is_symlink()
-            or not path.is_file()
-            or not path.resolve().is_relative_to(root_resolved)
-        ):
-            raise ClearQualificationError("archive must be a regular file below the dataset root")
-        if path.stat().st_size != size:
-            raise ClearQualificationError("archive size does not match the manifest")
-        actual = hashlib.sha256()
-        with path.open("rb") as stream:
-            while chunk := stream.read(1 << 20):
-                actual.update(chunk)
-        if actual.hexdigest() != digest:
+        if _archive_sha256(path, root=root_resolved, expected_size=size) != digest:
             raise ClearQualificationError("archive SHA-256 does not match the manifest")
         archives.append(ArchiveIdentity(role, path_text, size, digest))
     if len({archive.role for archive in archives}) != len(archives):
