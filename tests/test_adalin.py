@@ -168,6 +168,24 @@ def test_schedule_and_runner_replay_exactly_from_seed() -> None:
     assert first["provenance"] == second["provenance"]
 
 
+def test_schedule_and_runner_ignore_ambient_prng_default() -> None:
+    inputs = np.arange(24, dtype=np.float32).reshape(6, 4) / 24
+    labels = np.array([0, 1, 0, 1, 0, 1], np.int32)
+    config = AdaLinConfig(
+        tasks=3, examples_per_task=6, batch_size=2, hidden_widths=(3, 2), classes=2
+    )
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_adalin_development(
+            inputs, labels, inputs, labels, config=config, seed=9
+        )
+    with jax.default_prng_impl("rbg"):
+        actual = run_adalin_development(inputs, labels, inputs, labels, config=config, seed=9)
+
+    expected["resources"]["wall_clock_seconds_telemetry"] = 0.0
+    actual["resources"]["wall_clock_seconds_telemetry"] = 0.0
+    assert actual == expected
+
+
 def test_mechanism_off_runner_keeps_alpha_zero() -> None:
     inputs = np.eye(4, dtype=np.float32)
     labels = np.array([0, 1, 0, 1], np.int32)
