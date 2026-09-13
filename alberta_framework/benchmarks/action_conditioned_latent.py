@@ -61,6 +61,7 @@ PINNED_RESEARCH_ITEMS = tuple(sorted(PINNED_RESEARCH.items()))
 _MAX_STEPS = 4096
 _MAX_SEEDS = 16
 _INT32_MAX = 2**31 - 1
+_PRNG_IMPLEMENTATION = "threefry2x32"
 WORKLOAD_REGISTRY = (
     ("arm_ids", FROZEN_ARM_IDS),
     ("development_seeds", FROZEN_DEVELOPMENT_SEEDS),
@@ -392,14 +393,14 @@ def _sarsa_agent() -> SARSAAgent:
 
 def _expected_environment_bytes(seed: int, *, phase_length: int) -> int:
     env = SwitchingTwoStateMDP(SwitchingTwoStateConfig(phase_length=phase_length))
-    env_key, _mechanism_key = jr.split(jr.key(seed))
+    env_key, _mechanism_key = jr.split(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     return _tree_nbytes(env.init(env_key))
 
 
 def _expected_mechanism_bytes(arm_id: str, *, seed: int) -> int:
     if arm_id == "mechanism_off":
         return 0
-    _env_key, mechanism_key = jr.split(jr.key(seed))
+    _env_key, mechanism_key = jr.split(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     if arm_id.startswith("latent_"):
         model = _latent_model(interactions=arm_id != "latent_no_interactions")
         return _tree_nbytes(model.init(mechanism_key))
@@ -409,7 +410,8 @@ def _expected_mechanism_bytes(arm_id: str, *, seed: int) -> int:
 
 
 def _base_actions(seed: int, steps: int) -> tuple[int, ...]:
-    values = jr.randint(jr.fold_in(jr.key(seed), 91), (steps,), 0, 2, dtype=jnp.int32)
+    root = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
+    values = jr.randint(jr.fold_in(root, 91), (steps,), 0, 2, dtype=jnp.int32)
     return tuple(int(value) for value in np.asarray(values))
 
 
@@ -441,7 +443,7 @@ def _run_latent_arm(
     arm_id: str,
 ) -> ActionLatentArmReceipt:
     env = SwitchingTwoStateMDP(SwitchingTwoStateConfig(phase_length=protocol.phase_length))
-    env_key, model_key = jr.split(jr.key(seed))
+    env_key, model_key = jr.split(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     env_state = env.init(env_key)
     observation = env.observe(env_state)
     base_actions = _base_actions(seed, protocol.steps)
@@ -507,7 +509,7 @@ def _run_mechanism_off(
     protocol: ActionLatentProtocol, *, seed: int
 ) -> ActionLatentArmReceipt:
     env = SwitchingTwoStateMDP(SwitchingTwoStateConfig(phase_length=protocol.phase_length))
-    env_key, _unused_model_key = jr.split(jr.key(seed))
+    env_key, _unused_model_key = jr.split(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     state = env.init(env_key)
     actions = _base_actions(seed, protocol.steps)
     rewards: list[float] = []
@@ -536,7 +538,7 @@ def _run_mechanism_off(
 
 def _run_sarsa(protocol: ActionLatentProtocol, *, seed: int) -> ActionLatentArmReceipt:
     env = SwitchingTwoStateMDP(SwitchingTwoStateConfig(phase_length=protocol.phase_length))
-    env_key, agent_key = jr.split(jr.key(seed))
+    env_key, agent_key = jr.split(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     env_state = env.init(env_key)
     observation = env.observe(env_state)
     agent = _sarsa_agent()
