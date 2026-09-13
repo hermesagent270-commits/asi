@@ -57,6 +57,27 @@ def test_transcripts_are_deterministic_while_timing_remains_telemetry(
     assert first.timing.clock == "perf_counter_ns_process_local_telemetry_only"
 
 
+def test_transfer_lane_ignores_ambient_prng_default() -> None:
+    protocol = _tiny()
+    seed = lane.FROZEN_DEVELOPMENT_SEEDS[0]
+
+    def run_stochastic_paths() -> tuple[lane.TransferArmReceipt, ...]:
+        return (
+            lane._run_model_arm(protocol, seed, "asi_encoder_transfer"),
+            lane._run_control(protocol, seed, sarsa=True),
+        )
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_stochastic_paths()
+    with jax.default_prng_impl("rbg"):
+        actual = run_stochastic_paths()
+
+    zero_timing = lane.TimingTelemetry(0, 0, 0, 0, 0)
+    assert tuple(dataclasses.replace(arm, timing=zero_timing) for arm in actual) == tuple(
+        dataclasses.replace(arm, timing=zero_timing) for arm in expected
+    )
+
+
 def test_decision_off_reduces_exactly_to_mechanism_off(
     result: lane.JEPATransferResult,
 ) -> None:
