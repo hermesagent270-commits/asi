@@ -46,6 +46,7 @@ from alberta_framework.streams.base import ScanStream
 from alberta_framework.utils.statistics import common_final_window
 
 _INT32_MAX = 2**31 - 1
+_PRNG_IMPLEMENTATION = "threefry2x32"
 # Public last-fit in tests is seeds=3. Origin handed unbounded counts to
 # list(range(seeds)) with no last-fit reject — hang, not leftover INT32 math.
 _MULTI_SEED_MAX_CONFIGS = 256
@@ -375,7 +376,7 @@ def run_single_experiment(
     seed = require_jax_seed(seed, name="seed")
     learner = config.learner_factory()
     stream = config.stream_factory()
-    key = jr.key(seed)
+    key = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
 
     result = run_learning_loop(learner, stream, config.num_steps, key)
     final_state, metrics = cast(tuple[LearnerState, Any], result)
