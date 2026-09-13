@@ -64,6 +64,23 @@ def test_jit_and_eager_update_paths_match_except_timing() -> None:
         )
 
 
+def test_stochastic_controls_ignore_ambient_prng_default() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_cora_development(
+            seed=FROZEN_SEEDS[0], steps_per_task=4, replay_capacity=3
+        )
+    with jax.default_prng_impl("rbg"):
+        actual = run_cora_development(
+            seed=FROZEN_SEEDS[0], steps_per_task=4, replay_capacity=3
+        )
+
+    for left, right in zip(expected.arms, actual.arms, strict=True):
+        assert dataclasses.replace(left.receipt, elapsed_ns=0) == dataclasses.replace(
+            right.receipt, elapsed_ns=0
+        )
+        assert dataclasses.replace(left, receipt=right.receipt) == right
+
+
 def test_mechanism_off_matches_update_budget_but_never_samples_replay() -> None:
     result = run_cora_development(seed=FROZEN_SEEDS[2], steps_per_task=3, replay_capacity=2)
     replay, off, _, _ = result.arms
