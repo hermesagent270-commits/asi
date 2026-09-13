@@ -103,6 +103,7 @@ from alberta_framework.core.oak import (
     OaKConfig,
     OaKKeyboardPolicyProposal,
     OaKState,
+    _oak_update_working_set_bytes,
 )
 from alberta_framework.core.option_search_control import (
     OptionSearchControl,
@@ -166,6 +167,7 @@ from alberta_framework.core.types import HordeSpec
 from alberta_framework.core.world_model import (
     ActionConditionedWorldModel,
     ActionConditionedWorldModelConfig,
+    _world_model_direct_state_scalars,
 )
 from alberta_framework.core.world_model_ensemble import (
     WorldModelEnsemble,
@@ -185,6 +187,7 @@ _PROTOTYPE_V2_REPLAY_MIGRATION_TAG = 0x50525632
 _PROTOTYPE_FEATURE_LIFECYCLE_KEY_TAG = 0x50464C43
 _UINT32_MAX = 2**32 - 1
 _INT32_MAX = 2**31 - 1
+_DREAM_SCAN_WORD_BYTES = 8
 
 # ---------------------------------------------------------------------------
 # Standalone utility
@@ -352,6 +355,47 @@ def _preflight_gru_perception_update_working_set(
         raise ValueError(
             "GRUPerception update working set byte count must fit signed int32"
         )
+
+
+def _prototype_dream_iteration_byte_charge(
+    oak: OaKConfig,
+    world_model: ActionConditionedWorldModelConfig,
+) -> int:
+    """Return the declared configured byte-work charge for one dream.
+
+    Charge one full persistent legacy world-model state per prediction query,
+    one audited OaK update working set, one int32 scan index, and one float32
+    TD-error result. This is deterministic resource accounting, not a claim
+    about backend-specific hardware traffic or XLA buffer reuse.
+    """
+    action_feature_dim = world_model.n_actions
+    if world_model.include_action_interactions:
+        action_feature_dim += world_model.observation_dim * world_model.n_actions
+    world_model_state_bytes = 4 * _world_model_direct_state_scalars(
+        observation_dim=world_model.observation_dim,
+        action_feature_dim=action_feature_dim,
+        hidden_sizes=world_model.hidden_sizes,
+        n_heads=world_model.observation_dim + 2,
+        outer_state_scalars=2 * world_model.observation_dim + 4,
+    )
+    return (
+        _oak_update_working_set_bytes(oak.stomp)
+        + world_model_state_bytes
+        + _DREAM_SCAN_WORD_BYTES
+    )
+
+
+def _preflight_prototype_dream_byte_work(
+    n_dreams_per_step: int,
+    oak: OaKConfig,
+    world_model: ActionConditionedWorldModelConfig | None,
+) -> None:
+    """Reject a configured cumulative dream envelope outside signed int32."""
+    if world_model is None or n_dreams_per_step == 0:
+        return
+    per_dream = _prototype_dream_iteration_byte_charge(oak, world_model)
+    if n_dreams_per_step * per_dream > _INT32_MAX:
+        raise ValueError("Prototype dream byte-work count must fit signed int32")
 
 
 def _copy_mapping(payload: object, *, name: str) -> dict[str, Any]:
@@ -721,6 +765,11 @@ class PrototypeAgentConfig:
                 minimum=0,
                 maximum=_INT32_MAX,
             ),
+        )
+        _preflight_prototype_dream_byte_work(
+            self.n_dreams_per_step,
+            self.oak,
+            self.world_model,
         )
         # horde_hidden_sizes: hostile-safe per-element validation
         raw_hidden = self.horde_hidden_sizes
