@@ -43,6 +43,7 @@ FROZEN_TASK_TARGETS = (0, 1, 0)
 ARM_IDS = ("guarded_imagination", "imagination_off", "privileged_task_control")
 MAX_STEPS_PER_TASK = 16
 MAX_IMAGINATIONS_PER_STEP = 8
+_PRNG_IMPLEMENTATION = "threefry2x32"
 WORKLOAD_REGISTRY = (
     ("arm_ids", ARM_IDS),
     ("frozen_seeds", FROZEN_SEEDS),
@@ -193,7 +194,7 @@ def _run_arm(
             error_decay=0.0,
         )
     )
-    state = model.init(jr.key(seed))
+    state = model.init(jr.key(seed, impl=_PRNG_IMPLEMENTATION))
     initial_model_bytes = _tree_nbytes(state)
     dreamer = GuardedDreamer(
         DreamingConfig(warmup_steps=1, max_model_error_ema=1.0e6, max_uncertainty=0.0)
@@ -362,7 +363,11 @@ def validate_result(value: object) -> DevelopmentResult:
         expected_persistent = (
             int(np.asarray(FROZEN_TASK_TARGETS, dtype=np.int32).nbytes)
             if not model_arm
-            else _tree_nbytes(model.init(jr.key(value.seed))) + 2 * 4 + expected_peak
+            else (
+                _tree_nbytes(model.init(jr.key(value.seed, impl=_PRNG_IMPLEMENTATION)))
+                + 2 * 4
+                + expected_peak
+            )
         )
         if receipt.persistent_bytes != expected_persistent:
             raise ValueError("persistent-byte receipt mismatch")

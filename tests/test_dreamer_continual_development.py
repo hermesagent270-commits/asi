@@ -49,6 +49,29 @@ def test_jit_and_eager_paths_match_metrics_and_counters_except_timing() -> None:
         )
 
 
+def test_development_lane_ignores_ambient_prng_default() -> None:
+    kwargs = {
+        "seed": FROZEN_SEEDS[0],
+        "steps_per_task": 2,
+        "replay_capacity": 2,
+        "imaginations_per_step": 1,
+    }
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_development_lane(**kwargs)
+    with jax.default_prng_impl("rbg"):
+        actual = run_development_lane(**kwargs)
+
+    assert actual.identity == expected.identity
+    for actual_arm, expected_arm in zip(actual.arms, expected.arms, strict=True):
+        assert dataclasses.replace(
+            actual_arm,
+            receipt=dataclasses.replace(actual_arm.receipt, elapsed_ns=0),
+        ) == dataclasses.replace(
+            expected_arm,
+            receipt=dataclasses.replace(expected_arm.receipt, elapsed_ns=0),
+        )
+
+
 def test_mechanism_off_is_causal_and_has_no_imagined_updates() -> None:
     result = run_development_lane(
         seed=FROZEN_SEEDS[2], steps_per_task=3, replay_capacity=3, imaginations_per_step=2
