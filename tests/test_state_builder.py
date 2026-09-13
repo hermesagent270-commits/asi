@@ -85,6 +85,69 @@ def test_builders_satisfy_runtime_contract_and_exact_state_budget(
     assert budget.trainable_scalars <= budget.state_scalars
 
 
+@pytest.mark.parametrize(
+    "builder",
+    [
+        IdentityStateBuilder(IdentityStateBuilderConfig(observation_dim=2)),
+        FixedTraceStateBuilder(
+            FixedTraceStateBuilderConfig(observation_dim=2, n_actions=2)
+        ),
+        OnlineGatedStateBuilder(
+            OnlineGatedStateBuilderConfig(
+                observation_dim=2,
+                n_actions=2,
+                hidden_dim=2,
+            )
+        ),
+    ],
+    ids=("identity", "fixed-trace", "online-gated"),
+)
+@pytest.mark.parametrize("entry_point", ["encode", "update"])
+@pytest.mark.parametrize("bad_shape", [(1, 2), (2, 1)])
+def test_state_builders_reject_wrong_shaped_observations(
+    builder: StateBuilder[object],
+    entry_point: str,
+    bad_shape: tuple[int, int],
+) -> None:
+    """A batch or column axis must not be flattened into the feature axis."""
+    state = builder.init(jr.key(0))
+    observation = jnp.ones(bad_shape, dtype=jnp.float32)
+
+    with pytest.raises(
+        ValueError,
+        match=r"raw_observation must have shape \(2,\)",
+    ):
+        if entry_point == "encode":
+            builder.encode(state, observation)
+        else:
+            builder.update(state, observation, -1, 0.0, 1.0)
+
+
+@pytest.mark.parametrize("bad_shape", [(1, 2), (2, 1)])
+def test_online_gated_event_rejects_wrong_shaped_observations(
+    bad_shape: tuple[int, int],
+) -> None:
+    """The recurrent event boundary must reject before concatenating fields."""
+    builder = OnlineGatedStateBuilder(
+        OnlineGatedStateBuilderConfig(
+            observation_dim=2,
+            n_actions=2,
+            hidden_dim=2,
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"raw_observation must have shape \(2,\)",
+    ):
+        builder._event(
+            jnp.ones(bad_shape, dtype=jnp.float32),
+            -1,
+            0.0,
+            1.0,
+        )
+
+
 def test_identity_is_observation_only_and_encode_is_pure() -> None:
     builder = IdentityStateBuilder(IdentityStateBuilderConfig(observation_dim=2))
     state = builder.init(jr.key(0))
