@@ -144,6 +144,7 @@ def _require_exact_str(name: object, value: object) -> str:
 
 logger = logging.getLogger(__name__)
 _WINDOWS_READONLY_UNLINK = os.name == "nt"
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 def _preflight_new_output(path: Path) -> Path:
@@ -1069,7 +1070,7 @@ def run_ipmnist(
     pool_noise_std = float(hp["noise_std"]) if use_pool else 0.0
 
     def init_seed(seed: Array) -> tuple[dict[str, Array], Any, IPMNISTSchedule, Array]:
-        root = jr.key(seed)
+        root = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
         key_init, key_schedule, key_noise = jr.split(root, 3)
         params = init_mlp_params(key_init, config)
         return params, init_fn(params), build_schedule(key_schedule, config, n_train), key_noise

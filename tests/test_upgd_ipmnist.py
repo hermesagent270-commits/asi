@@ -9,6 +9,7 @@ import json
 import stat
 from pathlib import Path
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -684,6 +685,55 @@ class TestSmoke:
         first = run_ipmnist(data_x, data_y, "upgd_w", seeds=(5,), config=TINY)
         second = run_ipmnist(data_x, data_y, "upgd_w", seeds=(5,), config=TINY)
         np.testing.assert_array_equal(first.per_task_accuracy, second.per_task_accuracy)
+
+    def test_runner_ignores_ambient_prng_default(self):
+        config = IPMNISTConfig(
+            n_tasks=2,
+            task_length=4,
+            input_dim=4,
+            hidden1=4,
+            hidden2=2,
+            n_classes=2,
+        )
+        rng = np.random.default_rng(7)
+        data_x = rng.normal(size=(16, config.input_dim)).astype(np.float32)
+        data_y = np.arange(16, dtype=np.int32) % config.n_classes
+
+        with jax.default_prng_impl("threefry2x32"):
+            expected = run_ipmnist(
+                data_x,
+                data_y,
+                "upgd_w",
+                seeds=(17,),
+                config=config,
+                return_per_step=True,
+            )
+        with jax.default_prng_impl("rbg"):
+            actual = run_ipmnist(
+                data_x,
+                data_y,
+                "upgd_w",
+                seeds=(17,),
+                config=config,
+                return_per_step=True,
+            )
+
+        for field in (
+            "per_task_accuracy",
+            "per_task_loss",
+            "per_task_plasticity",
+            "average_online_accuracy",
+            "per_step_accuracy",
+            "permutations",
+            "example_indices",
+        ):
+            np.testing.assert_array_equal(getattr(expected, field), getattr(actual, field))
+        assert expected.initial_params is not None
+        assert actual.initial_params is not None
+        for name in expected.initial_params:
+            np.testing.assert_array_equal(
+                expected.initial_params[name], actual.initial_params[name]
+            )
 
     def test_hyperparameter_override_is_recorded(self):
         data_x, data_y = _synthetic_dataset(3, N_TRAIN, TINY.input_dim, TINY.n_classes)
