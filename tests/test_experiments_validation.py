@@ -8,6 +8,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Any, Never
 
+import jax
 import numpy as np
 import pytest
 
@@ -174,6 +175,26 @@ def test_integer_seed_count_still_aligns_identities() -> None:
         show_progress=False,
     )
     assert results["baseline"].seeds == [0, 1]
+
+
+def test_seeded_experiment_ignores_ambient_prng_default() -> None:
+    config = _config("baseline", num_steps=8)
+
+    def squared_errors() -> np.ndarray:
+        result = run_multi_seed_experiment(
+            [config],
+            seeds=[17],
+            parallel=False,
+            show_progress=False,
+        )["baseline"]
+        return result.metric_arrays["squared_error"]
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = squared_errors()
+    with jax.default_prng_impl("rbg"):
+        actual = squared_errors()
+
+    np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.parametrize("window", [True, False, 1.0])
