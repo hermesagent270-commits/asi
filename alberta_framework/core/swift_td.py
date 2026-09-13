@@ -68,21 +68,7 @@ def _skip_zero_scale(scale: Array, value: Array) -> Array:
 # Paper default for the step-size floor: eta_min = e^-15.
 _INT32_MAX = 2**31 - 1
 _FLOAT32_MIN_NORMAL = float.fromhex("0x1.0p-126")
-_ACTUAL_INT_TYPES = frozenset(
-    {
-        int,
-        np.int8,
-        np.int16,
-        np.int32,
-        np.int64,
-        np.uint8,
-        np.uint16,
-        np.uint32,
-        np.uint64,
-        np.longlong,
-        np.ulonglong,
-    }
-)
+_ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 
 
 def _require_int32(name: str, value: object, *, minimum: int, maximum: int = _INT32_MAX) -> int:
@@ -507,7 +493,11 @@ class SwiftTD:
         decay_triggered = tau > eta
         log_alphas = jnp.where(
             decay_triggered,
-            state.log_step_sizes + jnp.log(state.step_size_decay) * phi**2,
+            jnp.clip(
+                state.log_step_sizes + jnp.log(state.step_size_decay) * phi**2,
+                jnp.log(state.eta_min),
+                jnp.log(eta),
+            ),
             state.log_step_sizes,
         )
         h_ext = jnp.where(decay_triggered, 0.0, state.h_traces)

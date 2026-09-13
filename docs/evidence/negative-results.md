@@ -195,6 +195,92 @@ raw run logs are retained in the
     `outputs/ipmnist_screening/gate_ablation_r2/` (20 v2 shards, `summary.json`,
     per-shard logs).
 
+19. **Whitening the residual body signal by the head's activation second
+    moment is harmful, and the correct feature-space curvature is not enough.**
+    A pre-registered 60-task, seeds 0-2 paired screen against a remeasured
+    `rls_head_resid_l1_preset005` replaced the body's error direction
+    `g = wout @ err` with an interpolation toward a preconditioned direction,
+    renormalized to `||g||` so the frozen step size still applied. The two
+    metrics are monotone in the interpolation weight and have opposite signs:
+    activation whitening (`p @ g`) measured -0.000279 at a=0.5 and -0.001461
+    at a=1, while the feature-space Newton direction
+    (`wout @ gram^-1 err`, `gram = wout.T @ wout`) measured +0.000011 at
+    a=0.5 and +0.001672 at a=1 (all three seeds improving, se 0.000299).
+    Since the arms are identical apart from the preconditioning matrix and
+    both reduce bitwise to the incumbent at a=0, this isolates the effect to
+    the choice of metric: `p` is the activation second moment, whereas the
+    loss curvature in `phi` is `wout @ wout.T`. The Newton arm is a real
+    effect and still fell in the ambiguous band below the frozen +0.002 win
+    bar, so nothing was escalated and no threshold moved. It is also ~6% of
+    the 0.0289 needed for the 0.90 target. Plasticity was unmoved across all
+    arms (0.0053-0.0178, late-window slopes ~-3e-4). Records:
+    `outputs/ipmnist_screening/precond_r1/` (21 v2 shards, `summary.json`,
+    `PREREGISTRATION.md`, `RESULTS.md`).
+
+20. **Bounded forgetting still does not pay on the residual RLS head.** The
+    untested cell of the head 2x2 — `rls_head_resid_l0999_pcap`, forgetting
+    0.999 carrying the residual body signal under BOTH wind-up guards at once
+    (trace cap 1e4 and the detector-driven P reset) — led the incumbent on
+    every task of a 3-task diagnostic (0.7774/0.8704/0.8744 vs
+    0.7324/0.8424/0.8558) and then decayed to +0.000586 at 60 tasks with one
+    of three seeds negative. The guards do prevent the float32 overflow
+    collapse of negative result #10, but they do not make `lambda < 1` pay:
+    the "wins short diagnostics, then fades" pattern reproduces at the
+    60-task horizon. Do not re-probe forgetting on this head without a
+    mechanism that changes the long-horizon behaviour, and do not rank
+    rls_head arms on 2-3 task diagnostics — the ordering inverted between 3
+    and 60 tasks in this screen. Record:
+    `outputs/ipmnist_screening/precond_r1/`.
+
+21. **The 60-task screen overstates 200-task effect sizes in the rls_head
+    family (~3.5x).** The Newton+nogate composition won the 60-task screen
+    twice (+0.0027, 15/15 seed-diffs positive) and failed its preregistered
+    200-task confirmation at +0.0008 — a valid rejection, and a measured
+    calibration warning: treat 60-task paired effects as upper bounds until
+    confirmed at horizon. Records:
+    `outputs/ipmnist_screening/precond_r2/`.
+
+22. **The identifier match-time star is closed at 50/200/2000.** Round 2
+    probed both remaining directions from the confirmed optimum: an earlier
+    first match (N=25, ~0.10 accuracy) measured -0.000129 — the family's
+    first negative arm, locating the accuracy floor between 0.10 and 0.20 —
+    and a faster refine schedule (50/100/500) measured +0.000371, below the
+    tie floor. Neither an earlier first match nor a faster refine adds
+    anything at +/-0.0004 resolution; the round-1 monotonicity bottomed out
+    exactly at N=50. Do not re-tune the match schedule; remaining headroom
+    in this family lies elsewhere (the 0.016 to the 0.933 asymptote is
+    within-task convergence, untouched by identification). Records:
+    `outputs/ipmnist_screening/identmap_star2_r1/`.
+
+21. **Composing the Newton direction with gate removal cleared the 60-task
+    bar and then failed confirmation: this mechanism class decays ~3.5x with
+    horizon.** `rls_head_resid_l1_preset005_tp_nogate` combines the
+    feature-space Newton body signal with issue #1937's gate removal. The two
+    are additive with no measurable interaction (-0.000252 +/- 0.000190 at
+    n=10, t = -1.33), and additively they cleared the frozen +0.002 win bar
+    at 60 tasks: +0.002737 +/- 0.000178 with 10/10 seeds improving and the
+    weakest seed at +0.002137. The preregistered 200-task, 20-seed
+    confirmation measured **+0.000791 +/- 0.000094 with 19/20 seeds** — a
+    **3.46x decay**, failing both the +0.002 bar and the all-seeds condition.
+    No new standing best; 0.87114 stands. Both measurements are internally
+    sound, so the lesson is about the instrument: the 60-task screen
+    overstated the *effect size*, not merely its significance, because the
+    gain concentrates in early life and dilutes over a 3.3x longer horizon.
+    This extends entry 9 one rung — do not use 60-task paired effects as
+    200-task estimates for this class. It also bears on entry 18: gate
+    removal is one of the two components here, so its own +0.001712 at 60
+    tasks is likely worth substantially less at 200, and the ambiguous-band
+    rule that held it back was correct. The remeasured incumbent reproduced
+    the standing number to -0.0000658 (inside one stderr) on different
+    hardware, so the failure is a property of the arm, not the runner.
+    Neither arm degrades: late-window slopes stayed positive (8.03e-05 and
+    1.29e-04) and candidate plasticity was slightly higher (0.00745 vs
+    0.00448). Records:
+    `outputs/ipmnist_screening/precond_r2/` (40 shards, `summary.json`,
+    `summary_n10.json`, `PREREGISTRATION.md`) and
+    `outputs/ipmnist_screening/precond_confirm_r1/` (40 shards,
+    `summary.json`, `RESULTS.md`).
+
 ## Evidence and campaign closures
 
 1. **Continual-IA v1 is a valid rejection at its frozen gate.** Reward uplift
@@ -265,6 +351,48 @@ raw run logs are retained in the
     self-referential tests were removed. The same applies to the
     complete-prototype manifest and the not-assessed WP2 matrix: source presence
     was not an empirical gate.
+
+14. **The registered C-CHAIN IPMNIST adaptation collapsed in its bounded cheap
+    development screen.** The complete 4-arm × 5-seed, 2-task × 500-step panel
+    measured mechanism-off mean online accuracy at `0.4116`. Full C-CHAIN was
+    `0.1146` (paired delta `-0.2970`, 95% Student-t CI
+    `[-0.3344, -0.2596]`), projective-only was `0.1130` (`-0.2986`,
+    `[-0.3309, -0.2663]`), and orthogonal-only was `0.1126` (`-0.2990`,
+    `[-0.3305, -0.2675]`). Every active-arm difference was negative on every
+    seed. This rejects the registered supervised current-runner configurations,
+    not C-CHAIN's official continual-RL method. Do not retry the same target
+    relative-loss scale of 10,000 without a new causal hypothesis and bounded
+    plan. Record:
+    [`outputs/cchain_ipmnist/cheap_screen.v1/`](../../outputs/cchain_ipmnist/cheap_screen.v1/).
+
+
+14. **A transition-only FTL prediction cannot truthfully supply the immediate-
+    reward control required by the action-conditioned latent lane.** In
+    `SwitchingTwoStateMDP`, phase A and phase B admit the same learner
+    observation, action, and next observation while returning rewards 0 and 1.
+    Therefore no adapter from `SparseFTLWorldModel`'s predicted next observation
+    to immediate reward can identify the correct control value without
+    privileged phase information. This closes only the environment-payoff-table
+    adapter route: an FTL control with a separately learned reward head, with its
+    state, updates, queries, and bytes charged, remains open under issue #1575.
+    The exact counterexample is retained in
+    `tests/test_action_conditioned_latent.py`; the permanently nonpromoting
+    protocol scope is recorded in
+    [`action-conditioned-latent-protocol.md`](../research/action-conditioned-latent-protocol.md).
+
+15. **The bounded TeLAPA-inspired diverse archive does not beat its fixed-
+    snapshot control.** The reviewed-source development smoke ran seeds
+    1586000, 1586001, and 1586002 for 32 matched environment steps. Every seed
+    produced reward sums 13 for `diverse_archive`, 12 for `one_model`, and 15
+    for both `fixed_snapshot` and its exact-behavior `mechanism_off` reduction.
+    The diverse archive therefore improved by 1 reward over the latest-model
+    control but regressed by 2 rewards against the stronger fixed control on
+    every seed. This synthetic, short-horizon, permanently nonpromoting result
+    establishes no TeLAPA, transfer, or paper-parity claim and does not justify
+    advancing the archive mechanism. Record:
+    [`development_result_pr2257_review.v2.json`](../../outputs/telapa_qualification/development_result_pr2257_review.v2.json).
+    This append-only review replay preserves all twelve original arm records;
+    the original `development_result_pr2257.v2.json` remains as historical provenance.
 
 ## EMNIST transfer results
 

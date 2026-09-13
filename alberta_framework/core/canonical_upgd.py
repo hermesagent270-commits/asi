@@ -102,19 +102,7 @@ _RAW_GLOBAL_PROFILES = frozenset(
     }
 )
 _INT32_MAX = 2_147_483_647
-_ACTUAL_INT_TYPES: tuple[type, ...] = (
-    int,
-    np.int8,
-    np.int16,
-    np.int32,
-    np.int64,
-    np.uint8,
-    np.uint16,
-    np.uint32,
-    np.uint64,
-    np.longlong,
-    np.ulonglong,
-)
+_ACTUAL_INT_TYPES: tuple[type, ...] = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 _ACTUAL_REAL_TYPES = frozenset(
     (*_ACTUAL_INT_TYPES, float, np.float16, np.float32, np.float64, np.longdouble)
 )
@@ -294,6 +282,11 @@ def _static_zero_scale(scale: float, value: Array) -> Array:
     if scale == 0.0:
         return jnp.zeros_like(value)
     return scale * value
+
+
+def _skip_zero_scale(scale: Array, value: Array) -> Array:
+    """Return 0 when ``scale`` is 0 so a 0*inf product cannot form."""
+    return jnp.where(scale == 0.0, jnp.zeros_like(value), scale * value)
 
 
 def _saturating_increment(value: Array, increment: Array | int = 1) -> Array:
@@ -895,10 +888,12 @@ class CanonicalUPGD:
                 finite_noise = jnp.where(jnp.isfinite(sampled_noise), sampled_noise, 0.0)
                 perturbation = jnp.where(active, finite_noise, 0.0)
 
+                # gate=1 (sigmoid saturation) must not multiply an overflowed
+                # direction: (inf)*(1-gate) is 0*inf = NaN under IEEE/JAX.
                 if self._config.mode == "protecting":
-                    direction = (gradient + perturbation) * (1.0 - gate)
+                    direction = _skip_zero_scale(1.0 - gate, gradient + perturbation)
                 else:
-                    direction = gradient + perturbation * (1.0 - gate)
+                    direction = gradient + _skip_zero_scale(1.0 - gate, perturbation)
 
                 decayed = param * (1.0 - self._config.step_size * self._config.weight_decay)
                 direction_step = self._config.step_size * self._config.direction_multiplier
@@ -1721,10 +1716,15 @@ class AlbertaAdaUPGD:
             perturbation = jnp.where(eligible, sampled_noise, 0.0)
             adaptive_gradient = gradient / denominator
             adaptive_noise = perturbation / denominator
+            # gate=1 must not multiply an overflowed adaptive direction (0*inf).
             if self._config.mode == "protecting":
-                direction = (adaptive_gradient + adaptive_noise) * (1.0 - gate)
+                direction = _skip_zero_scale(
+                    1.0 - gate, adaptive_gradient + adaptive_noise
+                )
             else:
-                direction = adaptive_gradient + adaptive_noise * (1.0 - gate)
+                direction = adaptive_gradient + _skip_zero_scale(
+                    1.0 - gate, adaptive_noise
+                )
             decayed = param * (
                 1.0 - self._config.step_size * self._config.weight_decay
             )
@@ -2362,10 +2362,11 @@ class OfficialAdaUPGD:
                 corrected_utility / raw_global_maximum.astype(param.dtype)
             )
             one_minus_gate = 1.0 - gate
+            # gate=1 must not multiply overflowed Adam moments or noise (0*inf).
             direction = (
-                corrected_first * one_minus_gate
+                _skip_zero_scale(one_minus_gate, corrected_first)
                 / (jnp.sqrt(corrected_second) + self._config.epsilon)
-                + perturbation * one_minus_gate
+                + _skip_zero_scale(one_minus_gate, perturbation)
             )
             decayed = param * (
                 1.0 - self._config.step_size * self._config.weight_decay

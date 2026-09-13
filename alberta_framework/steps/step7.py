@@ -176,19 +176,7 @@ _STEP7_CONFIG_FIELDS = frozenset(
         "planning_utility_step_size",
     }
 )
-_ACTUAL_INT_TYPES = (
-    int,
-    np.int8,
-    np.int16,
-    np.int32,
-    np.int64,
-    np.uint8,
-    np.uint16,
-    np.uint32,
-    np.uint64,
-    np.longlong,
-    np.ulonglong,
-)
+_ACTUAL_INT_TYPES = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 _ACTUAL_REAL_TYPES = _ACTUAL_INT_TYPES + (
     float,
     Fraction,
@@ -841,16 +829,37 @@ def _select_planning_anchor(
     return anchor, index, jnp.where(memory_count > 0, score, 0.0)
 
 
+def _skip_zero_scale(scale: Array, value: Array) -> Array:
+    """Return ``scale * value``, or exact zero when ``scale`` is zero.
+
+    A zero blend weight means the term is not applied at all, so it must
+    contribute zero even when ``value`` is non-finite.  Taking the raw
+    product first turns ``0 * inf`` into ``NaN``.
+    """
+    return jnp.where(scale == 0.0, jnp.zeros_like(value), scale * value)
+
+
 def _update_planning_utility(
     memory_utilities: Array,
     index: Array,
     td_signal: Array,
     step_size: float,
 ) -> Array:
-    """Update learned search-control utility for a planned transition."""
+    """Update learned search-control utility for a planned transition.
+
+    Both blend weights are skipped at exactly zero.  ``step_size`` is a
+    validated unit-interval real, so ``0.0`` (freeze the utility) and
+    ``1.0`` (replace it outright) are both admissible, while
+    ``td_signal`` comes from an unclamped imagined rollout and can be
+    non-finite.  Without the skip, the ignored term's ``0 * inf`` wrote
+    ``NaN`` into the stored utility, and a ``NaN`` utility poisons the
+    ``learned`` strategy's ranking for the rest of the run.
+    """
     alpha = jnp.asarray(step_size, dtype=jnp.float32)
     old_utility = memory_utilities[index]
-    new_utility = (1.0 - alpha) * old_utility + alpha * jnp.abs(td_signal)
+    retained = _skip_zero_scale(1.0 - alpha, old_utility)
+    applied = _skip_zero_scale(alpha, jnp.abs(td_signal))
+    new_utility = retained + applied
     return memory_utilities.at[index].set(new_utility)
 
 
@@ -945,14 +954,19 @@ def _apply_planning_importance_correction(
         DifferentialSARSAState,
         planned_state.replace(  # type: ignore[attr-defined]
             q_weights=old_state.q_weights
-            + rho * (planned_state.q_weights - old_state.q_weights),
-            q_bias=old_state.q_bias + rho * (planned_state.q_bias - old_state.q_bias),
+            + _skip_zero_scale(rho, planned_state.q_weights - old_state.q_weights),
+            q_bias=old_state.q_bias
+            + _skip_zero_scale(rho, planned_state.q_bias - old_state.q_bias),
             q_trace_weights=old_state.q_trace_weights
-            + rho * (planned_state.q_trace_weights - old_state.q_trace_weights),
+            + _skip_zero_scale(
+                rho, planned_state.q_trace_weights - old_state.q_trace_weights
+            ),
             q_trace_bias=old_state.q_trace_bias
-            + rho * (planned_state.q_trace_bias - old_state.q_trace_bias),
+            + _skip_zero_scale(rho, planned_state.q_trace_bias - old_state.q_trace_bias),
             average_reward=old_state.average_reward
-            + rho * (planned_state.average_reward - old_state.average_reward),
+            + _skip_zero_scale(
+                rho, planned_state.average_reward - old_state.average_reward
+            ),
         ),
     )
 
@@ -1110,7 +1124,9 @@ def step7_update(
         def rollout_step(
             rollout_carry: tuple[DifferentialSARSAState, Array, Array, Array],
             _: Array,
-        ) -> tuple[tuple[DifferentialSARSAState, Array, Array, Array], tuple[Array, Array]]:
+        ) -> tuple[
+            tuple[DifferentialSARSAState, Array, Array, Array], tuple[Array, Array, Array]
+        ]:
             rollout_state, rollout_observation, rollout_action, rollout_key = (
                 rollout_carry
             )
@@ -1135,16 +1151,20 @@ def step7_update(
                 prediction.next_observation,
                 planned.action,
                 planned.state.rng_key,
-            ), (planned.td_error, prediction.reward)
+            ), (planned.td_error, prediction.reward, planned.update_applied)
 
         (
             (rollout_state, _rollout_observation, _rollout_action, _rollout_key),
-            (rollout_td_errors, rollout_rewards),
+            (rollout_td_errors, rollout_rewards, rollout_updates_applied),
         ) = jax.lax.scan(
             rollout_step,
             (carry_state, anchor_observation, action, key),
             jnp.arange(config.planning_rollout_depth, dtype=jnp.int32),
         )
+        # A backup counts as accepted only if the core learner actually applied
+        # every imagined update; a rolled-back update leaves the state
+        # unchanged and must not be reported as planning progress.
+        rollout_accepted = planning_ready & jnp.all(rollout_updates_applied)
         rollout_td_signal = jnp.sum(rollout_td_errors)
         root_reward = rollout_rewards[0]
         restored_state = cast(
@@ -1211,6 +1231,7 @@ def step7_update(
             jnp.where(planning_ready, behavior_prob, 0.0),
             jnp.where(planning_ready, target_prob, 0.0),
             jnp.where(planning_ready, importance_ratio, 0.0),
+            rollout_accepted,
         )
 
     (
@@ -1224,17 +1245,14 @@ def step7_update(
             planning_behavior_probs,
             planning_target_probs,
             planning_importance_ratios,
+            planning_accepted,
         ),
     ) = jax.lax.scan(
         planning_step,
         (control_after_real, memory_priorities, memory_utilities),
         jnp.arange(config.planning_steps, dtype=jnp.int32),
     )
-    planning_accepted = jnp.full(
-        (config.planning_steps,),
-        planning_ready,
-        dtype=jnp.bool_,
-    )
+    planning_accepted = planning_accepted.astype(jnp.bool_)
     new_state = Step7DynaState(
         control_state=planned_state,
         world_model_state=model_state,

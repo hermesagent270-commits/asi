@@ -46,19 +46,7 @@ _INT32_MAX: int = 2**31 - 1
 _UINT32_MAX: int = 2**32 - 1
 _MAX_PERSISTENT_STATE_BYTES: int = 256 * 1024 * 1024
 _FLOAT32_MIN_NORMAL: float = float(np.finfo(np.float32).tiny)
-_ACTUAL_INT_TYPES: tuple[type, ...] = (
-    int,
-    np.int8,
-    np.int16,
-    np.int32,
-    np.int64,
-    np.uint8,
-    np.uint16,
-    np.uint32,
-    np.uint64,
-    np.longlong,
-    np.ulonglong,
-)
+_ACTUAL_INT_TYPES: tuple[type, ...] = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 _ACTUAL_REAL_TYPES: frozenset[type] = frozenset(
     (*_ACTUAL_INT_TYPES, float, np.float16, np.float32, np.float64, np.longdouble, Fraction)
 )
@@ -674,8 +662,40 @@ def _active_mse(prediction: Array, target: Array) -> Array:
 
 
 def _normalize_simplex(prediction: Array) -> Array:
+    """Return a probability simplex; uniform when there is no usable mass.
+
+    The previous ``clipped / max(sum(clipped), 1e-12)`` helper did not
+    return a simplex in three float32 regimes, and every call site treats
+    the result as a distribution:
+
+    * Zero or wholly-negative mass leaves the ratio at zero.  This is
+      reachable: ``UPGDLearner`` initializes ``previous_targets`` to zeros,
+      so the target-trace blend mixes a proper simplex against a zero
+      vector until a target has been observed and the blended mass
+      collapses to ``1 - trace_gate``.
+    * A positive total below the floor is divided by the floor, so
+      ``[7.5e-13, 0, 0]`` becomes ``0.75``.
+    * A single dominant finite entry can make XLA's reciprocal flush to
+      zero, so ``[1e38, 1, 1]`` becomes the zero vector.
+
+    Rescale by an exact power of two before dividing by the true total so
+    the quotient stays in the normal range and well-formed inputs stay
+    bit-identical.  Fall back to uniform only when that normalized mass is
+    genuinely zero or non-finite.  Non-finite input, including NaN, also
+    maps to uniform: the helper's contract is a simplex, not NaN
+    propagation.
+    """
     clipped = jnp.maximum(prediction, 0.0)
-    return clipped / jnp.maximum(jnp.sum(clipped), 1e-12)
+    peak = jnp.max(clipped, axis=-1, keepdims=True)
+    finite_peak = jnp.where(jnp.isfinite(peak) & (peak > 0.0), peak, 1.0)
+    _, exponent = jnp.frexp(finite_peak)
+    rescaled = jnp.ldexp(clipped, -exponent)
+    total = jnp.sum(rescaled, axis=-1, keepdims=True)
+    safe_total = jnp.where(total > 0.0, total, jnp.ones_like(total))
+    candidate = rescaled / safe_total
+    has_mass = jnp.sum(candidate, axis=-1, keepdims=True) > 0.0
+    uniform = jnp.full_like(clipped, 1.0 / clipped.shape[-1])
+    return jnp.where(has_mass, candidate, uniform)
 
 
 class UPGDMemoryLearner:
@@ -944,10 +964,12 @@ class UPGDMemoryLearner:
             upgd_loss_ema = state.upgd_loss_ema
             memory_loss_ema = state.memory_loss_ema
         reliability_delta = upgd_loss_ema - memory_loss_ema
+        confidence_scale = jnp.asarray(self._config.confidence_logit_scale, dtype=jnp.float32)
+        reliability_scale = jnp.asarray(self._config.reliability_logit_scale, dtype=jnp.float32)
         logit = (
             state.memory_logit
-            + self._config.confidence_logit_scale * confidence_delta
-            + self._config.reliability_logit_scale * reliability_delta
+            + _skip_zero_scale(confidence_scale, confidence_delta)
+            + _skip_zero_scale(reliability_scale, reliability_delta)
         )
         return active_memory * jax.nn.sigmoid(logit)
 
@@ -960,7 +982,10 @@ class UPGDMemoryLearner:
         include_target_trace: bool,
     ) -> tuple[Array, Array]:
         gate = self._blend_gate(state, upgd_prediction, memory_prediction)
-        prediction = (1.0 - gate) * upgd_prediction + gate * memory_prediction
+        forget_upgd = 1.0 - gate
+        prediction = _skip_zero_scale(forget_upgd, upgd_prediction) + _skip_zero_scale(
+            gate, memory_prediction
+        )
         if self._config.readout_mode == "softmax_ce":
             prediction = _normalize_simplex(prediction)
         trace_scale = jnp.where(
@@ -979,7 +1004,10 @@ class UPGDMemoryLearner:
         )
         trace_gate = trace_scale * trace_pressure
         trace_prediction = _normalize_simplex(state.upgd_state.previous_targets)
-        prediction = (1.0 - trace_gate) * prediction + trace_gate * trace_prediction
+        forget_trace = 1.0 - trace_gate
+        prediction = _skip_zero_scale(forget_trace, prediction) + _skip_zero_scale(
+            trace_gate, trace_prediction
+        )
         if self._config.readout_mode == "softmax_ce":
             prediction = _normalize_simplex(prediction)
         return prediction, gate

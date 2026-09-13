@@ -25,21 +25,7 @@ from jaxtyping import Bool, Float, Int
 from alberta_framework.core._float32_scalars import validated_float32_scalar
 
 _INT32_MAX = 2**31 - 1
-_ACTUAL_INT_TYPES = frozenset(
-    {
-        int,
-        np.int8,
-        np.int16,
-        np.int32,
-        np.int64,
-        np.uint8,
-        np.uint16,
-        np.uint32,
-        np.uint64,
-        np.longlong,
-        np.ulonglong,
-    }
-)
+_ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 _ACTUAL_FLOAT_TYPES = frozenset((float, np.float16, np.float32, np.float64, np.longdouble))
 _CONFIG_FIELDS = frozenset(
     {
@@ -368,6 +354,10 @@ class BehaviorModelConfig:
         _resource_counts(self.n_actions, 1)
         step_size = _validated_config_float("step_size", self.step_size, lower=0.0)
         temperature = _validated_config_float("temperature", self.temperature, positive=True)
+        if temperature < float(np.finfo(np.float32).tiny):
+            raise ValueError(
+                f"temperature must be at least {np.finfo(np.float32).tiny} in float32"
+            )
         l2_penalty = _validated_config_float("l2_penalty", self.l2_penalty, lower=0.0)
         max_gradient_norm = (
             _validated_config_float(

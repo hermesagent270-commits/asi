@@ -79,19 +79,7 @@ _INT32_MAX = 2**31 - 1
 _UPGD_LOOP_MAX_STEPS = 10_000
 _UPGD_LOOP_BUDGET = ScanBudget("UPGD learning-loop", _UPGD_LOOP_MAX_STEPS)
 _ACTUAL_INT_TYPES: frozenset[type] = frozenset(
-    {
-        int,
-        np.int8,
-        np.int16,
-        np.int32,
-        np.int64,
-        np.uint8,
-        np.uint16,
-        np.uint32,
-        np.uint64,
-        np.longlong,
-        np.ulonglong,
-    }
+    {int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")}
 )
 _ACTUAL_FLOAT_TYPES: frozenset[type] = frozenset(
     {
@@ -2316,6 +2304,12 @@ class UPGDLearner:
             loss = 0.5 * jnp.sum(sq_masked) / denom
             return loss, (logits_for_loss, hidden_for_loss, loss)
 
+        def trunk_fn(
+            weights: tuple[Array, ...],
+            biases: tuple[Array, ...],
+        ) -> Array:
+            return self._trunk_forward(weights, biases, observation, slope, ln)
+
         if not use_direct_mse_loss:
             (_, (logits, hidden_for_readout, loss_value)), grads = jax.value_and_grad(
                 loss_and_aux_fn,
@@ -2329,13 +2323,6 @@ class UPGDLearner:
             )
             trunk_w_grads, trunk_b_grads, head_w_grads, head_b_grads = grads
         else:
-
-            def trunk_fn(
-                weights: tuple[Array, ...],
-                biases: tuple[Array, ...],
-            ) -> Array:
-                return self._trunk_forward(weights, biases, observation, slope, ln)
-
             raw_hidden, trunk_vjp_fn = jax.vjp(
                 trunk_fn,
                 state.trunk_params.weights,
@@ -2416,6 +2403,12 @@ class UPGDLearner:
             )
             fast_head_b_grads = tuple(fast_logit_grads[i : i + 1] for i in range(self._n_heads))
             if self._readout_fast_trunk_gradient_multiplier > 0.0:
+                if not use_direct_mse_loss:
+                    raw_hidden, trunk_vjp_fn = jax.vjp(
+                        trunk_fn,
+                        state.trunk_params.weights,
+                        state.trunk_params.biases,
+                    )
                 fast_head_cotangent = (
                     fast_head_matrix[:, : raw_hidden.shape[0]].T @ fast_logit_grads
                     if self._readout_input_mode == "hidden_plus_input" and n_trunk > 0
@@ -2942,7 +2935,9 @@ class UPGDLearner:
                     _skip_zero_scale(unit_gradient_decay, state.unit_gradient_emas[i])
                     + (1.0 - unit_gradient_decay) * unit_gradient_signal
                 )
-                new_unit_ages.append(state.unit_ages[i] + 1)
+                new_unit_ages.append(
+                    _saturating_int32_counter_increment(state.unit_ages[i])
+                )
             elif len(state.unit_utilities) > 0:
                 new_unit_utilities.append(state.unit_utilities[i])
                 new_unit_long_utilities.append(state.unit_long_utilities[i])

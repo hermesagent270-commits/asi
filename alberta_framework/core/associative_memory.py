@@ -36,19 +36,7 @@ from alberta_framework.core.update_safety import (
 
 _INT32_MAX: int = 2**31 - 1
 _UINT32_MAX: int = 4294967295
-_ACTUAL_INT_TYPES: tuple[type, ...] = (
-    int,
-    np.int8,
-    np.int16,
-    np.int32,
-    np.int64,
-    np.uint8,
-    np.uint16,
-    np.uint32,
-    np.uint64,
-    np.longlong,
-    np.ulonglong,
-)
+_ACTUAL_INT_TYPES: tuple[type, ...] = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 
 
 def _require_float32_resource(
@@ -903,7 +891,12 @@ class AssociativeMemoryLearner:
         empty = (state.counts <= 0.0) & eligible
         has_empty = jnp.any(empty)
         empty_slot = jnp.argmax(empty.astype(jnp.int32))
-        utility_score = jnp.where(eligible & (~empty), state.utility, jnp.inf)
+        occupied = eligible & (~empty)
+        fresh = occupied & (state.last_update == state.step_count)
+        candidate = occupied & (~fresh)
+        candidate_score = jnp.where(candidate, state.utility, jnp.inf)
+        occupied_score = jnp.where(occupied, state.utility, jnp.inf)
+        utility_score = jnp.where(jnp.any(candidate), candidate_score, occupied_score)
         low_utility_slot = jnp.argmin(utility_score)
         return jnp.where(has_empty, empty_slot, low_utility_slot), has_empty
 

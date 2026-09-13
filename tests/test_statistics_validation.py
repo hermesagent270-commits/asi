@@ -79,6 +79,32 @@ class TestComputeStatistics:
         assert s.ci_upper == pytest.approx(4.2)
         assert s.n_seeds == 1
 
+    def test_large_constant_values_remain_finite_without_warnings(self) -> None:
+        values = np.asarray([1.0e308, 1.0e308], dtype=np.float64)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            summary = compute_statistics(values)
+
+        assert summary.mean == 1.0e308
+        assert summary.std == 0.0
+        assert summary.sem == 0.0
+        assert summary.ci_lower == 1.0e308
+        assert summary.ci_upper == 1.0e308
+        assert summary.median == 1.0e308
+        assert summary.iqr == 0.0
+
+    def test_unrepresentable_large_interval_fails_closed_without_warnings(self) -> None:
+        values = np.asarray([-1.0e308, 1.0e308], dtype=np.float64)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(
+                ValueError,
+                match=r"^values cannot be represented as finite float64 statistics$",
+            ):
+                compute_statistics(values)
+
     def test_empty_values_rejected_without_warnings(self) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -363,6 +389,23 @@ class TestProbabilityContracts:
 
 
 class TestTimeseriesStatistics:
+    @pytest.mark.parametrize(
+        "metric_array",
+        [
+            np.asarray(1.0, dtype=np.float64),
+            np.asarray([1.0, 2.0, 3.0], dtype=np.float64),
+            np.ones((2, 3, 4), dtype=np.float64),
+        ],
+    )
+    def test_requires_seed_by_step_matrix(
+        self, metric_array: np.ndarray[Any, np.dtype[np.float64]]
+    ) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"^metric_array must be a two-dimensional seed-by-step matrix",
+        ):
+            compute_timeseries_statistics(metric_array)
+
     def test_matches_per_column_compute_statistics(self) -> None:
         """Vectorised timeseries CI agrees with per-step scalar CI."""
         rng = np.random.default_rng(2)
@@ -375,6 +418,20 @@ class TestTimeseriesStatistics:
             assert lo[step] == pytest.approx(s.ci_lower)
             assert hi[step] == pytest.approx(s.ci_upper)
 
+    def test_large_constant_column_remains_finite_without_warnings(self) -> None:
+        arr = np.asarray([[1.0e308, 1.0], [1.0e308, 2.0]], dtype=np.float64)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            mean, lo, hi = compute_timeseries_statistics(arr)
+
+        assert np.isfinite(mean).all()
+        assert np.isfinite(lo).all()
+        assert np.isfinite(hi).all()
+        assert mean[0] == 1.0e308
+        assert lo[0] == 1.0e308
+        assert hi[0] == 1.0e308
+
     def test_zero_seed_matrix_rejected_without_warnings(self) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -382,6 +439,14 @@ class TestTimeseriesStatistics:
                 ValueError, match=r"^metric_array must contain at least one seed row$"
             ):
                 compute_timeseries_statistics(np.empty((0, 3)))
+
+    def test_zero_step_matrix_rejected_without_warnings(self) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(
+                ValueError, match=r"^metric_array must contain at least one time step$"
+            ):
+                compute_timeseries_statistics(np.empty((3, 0)))
 
     def test_nonfinite_seed_rejected_without_warnings(self) -> None:
         arr = np.array([[1.0, 2.0], [np.nan, 3.0]], dtype=np.float64)
@@ -1251,6 +1316,19 @@ class TestPairwiseComparisons:
     def test_common_final_window_requires_positive_integer(self, window: object) -> None:
         with pytest.raises(ValueError, match="window must be a positive integer"):
             common_final_window({"learner": 10}, window, "squared_error")
+
+
+@pytest.mark.parametrize("timeseries", [False, True])
+def test_unrepresentable_maximum_spread_raises_without_runtime_warning(timeseries: bool) -> None:
+    maximum = np.finfo(np.float64).max
+    values = np.asarray([-maximum, maximum])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(ValueError, match="cannot be represented as finite float64 statistics"):
+            if timeseries:
+                compute_timeseries_statistics(values[:, None])
+            else:
+                compute_statistics(values)
 
 
 class TestProbabilityPrecision:

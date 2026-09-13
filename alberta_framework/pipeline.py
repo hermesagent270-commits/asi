@@ -103,19 +103,7 @@ _MAX_CONFIG_SEQUENCE_LENGTH: int = 4096
 _PIPELINE_SCAN_BUDGET = ScanBudget("Step 1-4 pipeline", maximum_steps=10_000)
 _PIPELINE_SCAN_MAX: int = _PIPELINE_SCAN_BUDGET.maximum_steps
 
-_ACTUAL_INT_TYPES: tuple[type, ...] = (
-    int,
-    np.int8,
-    np.int16,
-    np.int32,
-    np.int64,
-    np.uint8,
-    np.uint16,
-    np.uint32,
-    np.uint64,
-    np.longlong,
-    np.ulonglong,
-)
+_ACTUAL_INT_TYPES: tuple[type, ...] = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 
 def _require_exact_str(name: str, value: object) -> str:
     if type(value) is not str:
@@ -1573,11 +1561,23 @@ class AlbertaPipeline:
                 dtype=jnp.int32,
             )
             auxiliary_cumulants = horde_cumulants[aux_indices] if aux_indices.size else None
+            # Only the value head's discount is a per-transition control
+            # quantity. Zero it at episode boundaries so the value head does
+            # not bootstrap through termination and the actor eligibility
+            # trace decays to zero; auxiliary GVF demons keep their configured
+            # gammas. At ``terminated == 0.0`` this reproduces the value head's
+            # configured gamma bit-for-bit, so the non-terminal path is
+            # unchanged versus omitting ``discount``.
+            value_gamma = self._horde.horde_spec.gammas[value_index]
+            control_discount = jnp.where(
+                terminated == 0.0, value_gamma, jnp.zeros_like(value_gamma)
+            )
             ac_result = ac.update(
                 ac_state,
                 reward,
                 features,
                 auxiliary_cumulants=auxiliary_cumulants,
+                discount=control_discount,
             )
             new_control_state: SARSAState | HordeActorCriticState = ac_result.state
             q_values_or_policy = ac_result.policy

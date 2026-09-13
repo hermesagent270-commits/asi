@@ -107,6 +107,7 @@ import jax.random as jr
 import numpy as np
 from jax import Array
 
+from alberta_framework._bounded_containers import require_json_text_nesting
 from alberta_framework._seed_validation import require_jax_seed, require_unique_jax_seeds
 from alberta_framework.benchmarks.ipmnist_screening import (
     ScreeningStepFn,
@@ -128,19 +129,7 @@ from alberta_framework.core._float32_scalars import validated_float32_scalar
 _INT32_MAX = 2**31 - 1
 
 _ACTUAL_INT_TYPES: frozenset[type] = frozenset(
-    {
-        int,
-        np.int8,
-        np.int16,
-        np.int32,
-        np.int64,
-        np.uint8,
-        np.uint16,
-        np.uint32,
-        np.uint64,
-        np.longlong,
-        np.ulonglong,
-    }
+    {int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")}
 )
 
 
@@ -1063,6 +1052,10 @@ def build_plan_payload(
     }
 
 
+_MAX_JSON_NESTING_DEPTH = 64
+
+
+
 def _strict_json_object(path: Path) -> dict[str, Any]:
     def pairs_hook(pairs: list[tuple[str, object]]) -> dict[str, object]:
         parsed: dict[str, object] = {}
@@ -1082,12 +1075,24 @@ def _strict_json_object(path: Path) -> dict[str, Any]:
             raise ValueError(f"non-finite JSON number is forbidden: {value}")
         return parsed
 
-    payload = json.loads(
-        Path(path).read_text(encoding="utf-8"),
-        object_pairs_hook=pairs_hook,
-        parse_constant=reject_constant,
-        parse_float=parse_float,
-    )
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        require_json_text_nesting(
+            text, max_depth=_MAX_JSON_NESTING_DEPTH, name="JSON payload"
+        )
+    except ValueError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+    try:
+        payload = json.loads(
+            text,
+            object_pairs_hook=pairs_hook,
+            parse_constant=reject_constant,
+            parse_float=parse_float,
+        )
+    except RecursionError as exc:
+        raise ValueError(
+            f"{path}: JSON payload exceeds the parser recursion limit"
+        ) from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{path}: payload must be one JSON object")
     return payload

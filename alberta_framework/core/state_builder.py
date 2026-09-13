@@ -70,21 +70,7 @@ from alberta_framework.core.working_memory import (
 )
 
 _INT32_MAX = 2**31 - 1
-_ACTUAL_INT_TYPES = frozenset(
-    {
-        int,
-        np.int8,
-        np.int16,
-        np.int32,
-        np.int64,
-        np.uint8,
-        np.uint16,
-        np.uint32,
-        np.uint64,
-        np.longlong,
-        np.ulonglong,
-    }
-)
+_ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 
 
 def _require_exact_str(name: object, value: object) -> str:
@@ -1037,9 +1023,9 @@ class FixedTraceStateBuilderConfig:
         act_decays = data["action_decay_rates"]
         out_decays = data["outcome_decay_rates"]
         if (
-            not isinstance(obs_decays, (list, tuple))
-            or not isinstance(act_decays, (list, tuple))
-            or not isinstance(out_decays, (list, tuple))
+            type(obs_decays) not in (list, tuple)
+            or type(act_decays) not in (list, tuple)
+            or type(out_decays) not in (list, tuple)
         ):
             raise ValueError("decay rates must be lists or tuples")
         return cls(
