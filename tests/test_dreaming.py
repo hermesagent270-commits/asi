@@ -100,6 +100,22 @@ def test_dream_count_fields_accept_int32_endpoint_and_numpy_ints() -> None:
     assert endpoint.max_items == 2**31 - 1
 
 
+@pytest.mark.parametrize("shape", [(1, 2), (2, 1)])
+def test_recent_observation_buffer_rejects_wrong_shaped_observations(
+    shape: tuple[int, int],
+) -> None:
+    """One event must not flatten an accidental batch or column axis."""
+    buffer = RecentObservationBuffer(capacity=2, observation_dim=2)
+    state = buffer.init()
+    observation = jnp.asarray([[1.0, 2.0]], dtype=jnp.float32).reshape(shape)
+
+    with pytest.raises(
+        ValueError,
+        match=rf"observation must have shape \(2,\), got \({shape[0]}, {shape[1]}\)",
+    ):
+        buffer.add(state, observation)
+
+
 def _assert_rollout_state_close(left, right) -> None:  # type: ignore[no-untyped-def]
     chex.assert_trees_all_close(
         (

@@ -662,9 +662,13 @@ class RecentObservationBuffer:
         observation: Array,
     ) -> RecentObservationBufferState:
         """Insert one observation into the ring buffer."""
-        obs = jnp.asarray(observation, dtype=jnp.float32).reshape(
-            (self._observation_dim,)
-        )
+        raw_observation = jnp.asarray(observation)
+        expected_shape = (self._observation_dim,)
+        if raw_observation.shape != expected_shape:
+            raise ValueError(
+                f"observation must have shape {expected_shape}, got {raw_observation.shape}"
+            )
+        obs = jnp.asarray(raw_observation, dtype=jnp.float32)
         next_observations = state.observations.at[state.index].set(obs)
         return RecentObservationBufferState(
             observations=next_observations,
