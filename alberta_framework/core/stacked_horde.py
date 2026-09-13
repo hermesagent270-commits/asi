@@ -159,10 +159,15 @@ def _require_sequence(name: str, value: object) -> tuple[object, ...]:
     return cast(tuple[object, ...], value)
 
 
-def _decode_sequence(name: str, value: object) -> tuple[object, ...]:
+def _decode_sequence(
+    name: str, value: object, *, expected_length: int
+) -> tuple[object, ...]:
     if type(value) not in (list, tuple):
         raise ValueError(f"{name} must be an actual list or tuple")
-    return tuple(cast(list[object] | tuple[object, ...], value))
+    sequence = cast(list[object] | tuple[object, ...], value)
+    if len(sequence) != expected_length:
+        raise ValueError(f"{name} must have length n_demons={expected_length}")
+    return tuple(sequence)
 
 
 def _preflight_horde_resources(n_demons: int, feature_dim: int) -> None:
@@ -245,6 +250,8 @@ class StackedHordeConfig:
         """Validate the configuration."""
         n_demons = _require_int32("n_demons", self.n_demons, minimum=1)
         feature_dim = _require_int32("feature_dim", self.feature_dim, minimum=1)
+        _preflight_horde_resources(n_demons, feature_dim)
+        _preflight_stacked_horde_update_working_set(n_demons, feature_dim)
 
         raw_sequences = {
             "gammas": _require_sequence("gammas", self.gammas),
@@ -274,9 +281,6 @@ class StackedHordeConfig:
             _require_int32(f"cumulant_indices[{i}]", idx, minimum=0)
             for i, idx in enumerate(raw_sequences["cumulant_indices"])
         )
-
-        _preflight_horde_resources(n_demons, feature_dim)
-        _preflight_stacked_horde_update_working_set(n_demons, feature_dim)
 
         object.__setattr__(self, "n_demons", n_demons)
         object.__setattr__(self, "feature_dim", feature_dim)
@@ -312,8 +316,16 @@ class StackedHordeConfig:
         serialized_type = config.pop("type")
         if type(serialized_type) is not str or serialized_type != "StackedHordeConfig":
             raise ValueError("unexpected stacked Horde config type")
+        n_demons = _require_int32("n_demons", config["n_demons"], minimum=1)
+        feature_dim = _require_int32("feature_dim", config["feature_dim"], minimum=1)
+        _preflight_horde_resources(n_demons, feature_dim)
+        _preflight_stacked_horde_update_working_set(n_demons, feature_dim)
+        config["n_demons"] = n_demons
+        config["feature_dim"] = feature_dim
         for key in ("gammas", "lamdas", "cumulant_indices"):
-            config[key] = _decode_sequence(key, config[key])
+            config[key] = _decode_sequence(
+                key, config[key], expected_length=n_demons
+            )
         return cls(**config)
 
 
@@ -341,6 +353,11 @@ def nexting_spec(
     feature_dim = _require_int32("feature_dim", feature_dim, minimum=1)
     raw_indices = _require_sequence("cumulant_indices", cumulant_indices)
     raw_gammas = _require_sequence("gammas", gammas)
+    n_demons = len(raw_indices) * len(raw_gammas)
+    if n_demons < 1 or n_demons > _INT32_MAX:
+        raise ValueError("derived n_demons must be in the signed int32 domain")
+    _preflight_horde_resources(n_demons, feature_dim)
+    _preflight_stacked_horde_update_working_set(n_demons, feature_dim)
     canonical_indices = tuple(
         _require_int32(f"cumulant_indices[{i}]", value, minimum=0)
         for i, value in enumerate(raw_indices)
@@ -350,11 +367,6 @@ def nexting_spec(
         for i, value in enumerate(raw_gammas)
     )
     canonical_lamda = validated_float32_scalar("lamda", lamda, lower=0.0, upper=1.0)
-    n_demons = len(canonical_indices) * len(canonical_gammas)
-    if n_demons < 1 or n_demons > _INT32_MAX:
-        raise ValueError("derived n_demons must be in the signed int32 domain")
-    _preflight_horde_resources(n_demons, feature_dim)
-    _preflight_stacked_horde_update_working_set(n_demons, feature_dim)
     idxs: list[int] = []
     gs: list[float] = []
     for c in canonical_indices:
