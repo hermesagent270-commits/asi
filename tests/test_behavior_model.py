@@ -372,6 +372,17 @@ def test_behavior_model_sampling_requires_scalar_typed_threefry_state_key(
         model.sample_action(state, jnp.ones((4,), dtype=jnp.float32))
 
 
+def test_behavior_model_accepts_default_scalar_typed_threefry_key() -> None:
+    model = BehaviorModel(BehaviorModelConfig(n_actions=3))
+    state = model.init(feature_dim=4, key=jax.random.key(19))
+
+    sampled = model.sample_action(state, jnp.ones((4,), dtype=jnp.float32))
+
+    assert sampled.action.shape == ()
+    assert sampled.probabilities.shape == (3,)
+    assert jax.random.key_impl(sampled.state.rng_key) == "threefry2x32"
+
+
 def test_preupdate_input_gradient_matches_autodiff_and_does_not_advance_state() -> None:
     model = BehaviorModel(
         BehaviorModelConfig(
