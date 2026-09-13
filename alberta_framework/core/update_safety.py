@@ -56,7 +56,9 @@ def safe_discrete_action(
             jnp.asarray(0, dtype=jnp.int32),
             jnp.asarray(True, dtype=jnp.bool_),
         )
-    raw = jnp.asarray(action, dtype=jnp.float32).reshape(())
+    raw = jnp.asarray(action, dtype=jnp.float32)
+    if raw.shape != ():
+        raise ValueError(f"action must be a scalar, got shape {raw.shape}")
     lower = -1.0 if allow_unset else 0.0
     valid = (
         jnp.isfinite(raw)
