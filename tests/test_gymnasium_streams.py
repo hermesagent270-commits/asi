@@ -1,5 +1,6 @@
 """Tests for Gymnasium experience streams."""
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -153,6 +154,34 @@ def test_seed_contracts_reject_aliases_and_spoofs_without_shrinking_uint32_domai
         assert env.action_space.contains(policy(jnp.zeros(4)))
     finally:
         env.close()
+
+
+def test_seeded_policy_factories_ignore_ambient_prng_default() -> None:
+    class StubEnv:
+        action_space = gymnasium.spaces.Discrete(7)
+
+    observation = jnp.zeros(1)
+
+    def action_sequences() -> tuple[list[object], list[object]]:
+        env = StubEnv()
+        random_policy = make_random_policy(env, seed=17)  # type: ignore[arg-type]
+        epsilon_policy = make_epsilon_greedy_policy(
+            lambda _observation: 0,
+            env,  # type: ignore[arg-type]
+            epsilon=0.5,
+            seed=19,
+        )
+        return (
+            [random_policy(observation) for _ in range(16)],
+            [epsilon_policy(observation) for _ in range(16)],
+        )
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = action_sequences()
+    with jax.default_prng_impl("rbg"):
+        actual = action_sequences()
+
+    assert actual == expected
 
 
 def test_random_policy_respects_nonzero_and_multiaxis_discrete_starts() -> None:

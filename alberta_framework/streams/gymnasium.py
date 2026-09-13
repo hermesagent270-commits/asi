@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
 _INT32_MAX = 2**31 - 1
 _INT32_MIN = -(2**31)
+_PRNG_IMPLEMENTATION = "threefry2x32"
 _ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 
 
@@ -316,7 +317,7 @@ def make_random_policy(env: gymnasium.Env[Any, Any], seed: int = 0) -> Callable[
         A callable that takes an observation and returns a random action
     """
     seed = require_jax_seed(seed)
-    return _make_random_policy(env, jr.key(seed))
+    return _make_random_policy(env, jr.key(seed, impl=_PRNG_IMPLEMENTATION))
 
 
 def make_epsilon_greedy_policy(
@@ -340,8 +341,12 @@ def make_epsilon_greedy_policy(
         raise ValueError("base_policy must be callable")
     epsilon = validated_float32_scalar("epsilon", epsilon, lower=0.0, upper=1.0)
     seed = require_jax_seed(seed)
-    rng = jr.key(seed)
-    random_rng = jr.key(seed + 1) if seed < JAX_KEY_SEED_MAX else jr.fold_in(rng, 1)
+    rng = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
+    random_rng = (
+        jr.key(seed + 1, impl=_PRNG_IMPLEMENTATION)
+        if seed < JAX_KEY_SEED_MAX
+        else jr.fold_in(rng, 1)
+    )
     random_policy = _make_random_policy(env, random_rng)
 
     def policy(obs: Array) -> Any:
