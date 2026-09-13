@@ -72,7 +72,7 @@ def _require_typed_threefry_key(name: str, value: object) -> Array:
         raise TypeError(f"{name} must be a scalar typed Threefry JAX key")
     trusted = cast(Array, value)
     try:
-        implementation = str(jr.key_impl(trusted))
+        implementation = jr.key_impl(trusted)
         words = jr.key_data(trusted)
     except (TypeError, ValueError) as error:
         raise TypeError(f"{name} must be a scalar typed Threefry JAX key") from error
