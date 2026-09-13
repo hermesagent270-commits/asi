@@ -53,6 +53,7 @@ FROZEN_DEVELOPMENT_SEEDS = (1_586_000, 1_586_001, 1_586_002)
 _POLICY_SHAPE = (2, 2)
 _POLICY_BYTES = 16
 _ARMS = ("diverse_archive", "one_model", "fixed_snapshot", "mechanism_off")
+_PRNG_IMPLEMENTATION = "threefry2x32"
 Arm = Literal["diverse_archive", "one_model", "fixed_snapshot", "mechanism_off"]
 
 
@@ -412,7 +413,7 @@ def _run_arm(config: TeLAPASmokeConfig, seed: int, arm: Arm) -> dict[str, Any]:
         phase_length=config.phase_length,
         learning_rate=config.learning_rate,
     )
-    root = jr.key(seed)
+    root = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
     environment_state, policy = adapter.init(root)
     initial_policy = _policy_bytes(policy)
     archive = BoundedPolicyArchive(
