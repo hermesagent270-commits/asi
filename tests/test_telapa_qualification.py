@@ -77,6 +77,17 @@ def test_current_life_adapter_is_deterministic_for_the_same_key() -> None:
         first.step(first_state, np.ones((2, 2), dtype=np.float64), key=jax.random.key(8))
 
 
+def test_smoke_ignores_ambient_prng_default() -> None:
+    config = TeLAPASmokeConfig(steps=8, phase_length=2)
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_smoke(config)
+    with jax.default_prng_impl("rbg"):
+        actual = run_smoke(config)
+
+    assert actual["identity"] == expected["identity"]
+    assert actual == expected
+
+
 def test_end_to_end_matrix_has_exact_mechanism_off_parity() -> None:
     result = _result()
     validate_result(json.loads(json.dumps(result)))
