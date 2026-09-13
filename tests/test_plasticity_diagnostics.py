@@ -75,6 +75,20 @@ def test_jit_and_eager_paths_match_except_timing() -> None:
         )
 
 
+def test_diagnostic_is_independent_of_ambient_prng_implementation() -> None:
+    images, labels = _fixture()
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_diagnostic(images, labels, seed=FROZEN_SEEDS[0])
+    with jax.default_prng_impl("rbg"):
+        actual = run_diagnostic(images, labels, seed=FROZEN_SEEDS[0])
+
+    for left, right in zip(expected.arms, actual.arms, strict=True):
+        assert dataclasses.replace(left.receipt, elapsed_ns=0) == dataclasses.replace(
+            right.receipt, elapsed_ns=0
+        )
+        assert dataclasses.replace(left, receipt=right.receipt) == right
+
+
 def test_exact_resource_receipts_and_validator_reject_forgery() -> None:
     result = run_diagnostic(*_fixture(), seed=FROZEN_SEEDS[2])
     for arm in result.arms:

@@ -41,6 +41,7 @@ MAX_DATASET_UNCOMPRESSED_BYTES = (
     MAX_DATASET_EXAMPLES * INPUT_DIM * 4 + MAX_DATASET_EXAMPLES * 4 + 8192
 )
 _NPZ_REQUIRED_MEMBERS = frozenset({"images.npy", "labels.npy"})
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 def _runtime_identity() -> tuple[str, str, str, str]:
@@ -391,7 +392,7 @@ def _dataset_sha(images: np.ndarray, labels: np.ndarray) -> str:
 def _schedule(
     images: np.ndarray, labels: np.ndarray, profile: DiagnosticProfile, seed: int
 ) -> tuple[tuple[np.ndarray, np.ndarray], ...]:
-    key = jr.key(seed)
+    key = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
     permutation = np.arange(INPUT_DIM, dtype=np.int32)
     tasks: list[tuple[np.ndarray, np.ndarray]] = []
     for _ in range(profile.n_tasks):
@@ -433,7 +434,7 @@ def _run_arm(
     profile: DiagnosticProfile,
     seed: int,
 ) -> ArmResult:
-    key = jr.key(seed)
+    key = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
     key, init_key = jr.split(key)
     state = _init_state(init_key, profile.hidden_width)
     rate = 0.0 if arm_id in ("sgd_control", "cbp_mechanism_off") else profile.replacement_rate
@@ -548,7 +549,10 @@ def validate_result(value: object) -> DiagnosticResult:
         ResourceReceipt.__post_init__(arm.receipt)
         receipt = arm.receipt
         expected_persistent = sum(
-            array.nbytes for array in jax.tree.leaves(_init_state(jr.key(0), profile.hidden_width))
+            array.nbytes
+            for array in jax.tree.leaves(
+                _init_state(jr.key(0, impl=_PRNG_IMPLEMENTATION), profile.hidden_width)
+            )
         )
         training_queries = expected_steps * 2
         diagnostic_queries = expected_steps
