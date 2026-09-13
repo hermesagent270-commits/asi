@@ -31,6 +31,7 @@ TASK_TARGETS = (0, 1, 0)
 N_CYCLES = 2
 ARM_IDS = ("replay_q", "replay_off_q", "task_id_q_control", "uniform_random")
 MAX_STEPS_PER_TASK = 32
+_PRNG_IMPLEMENTATION = "threefry2x32"
 # One pre-training snapshot plus one checkpoint after every task in every cycle.
 _EVALUATION_MATRIX_ROWS = len(TASK_TARGETS) * N_CYCLES + 1
 
@@ -214,7 +215,9 @@ def _greedy(values: np.ndarray, tie: int) -> int:
 
 
 def _rng_key(seed: int, domain: int, index: int) -> Array:
-    return jr.fold_in(jr.fold_in(jr.key(seed), domain), index)
+    return jr.fold_in(
+        jr.fold_in(jr.key(seed, impl=_PRNG_IMPLEMENTATION), domain), index
+    )
 
 
 def _evaluate(
