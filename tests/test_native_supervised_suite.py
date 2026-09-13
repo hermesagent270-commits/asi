@@ -7,6 +7,7 @@ import jax
 import numpy as np
 import pytest
 
+from alberta_framework.benchmarks import native_supervised_suite as native_suite
 from alberta_framework.benchmarks.native_supervised_suite import (
     ARM_IDS,
     BENCHMARK_IDS,
@@ -173,6 +174,29 @@ def test_hostile_axes_are_rejected(seed: object, count: object) -> None:
     images, labels = _fixture(10, (4, 4))
     with pytest.raises(ValueError):
         build_task_stream("split_mnist", images, labels, seed=seed, examples_per_task=count)
+
+
+@pytest.mark.parametrize("arm_id", ("online_sgd", "replay_sgd"))
+def test_sgd_arms_reject_nonfinite_numeric_state_from_finite_inputs(arm_id: str) -> None:
+    task = native_suite.TaskBatch(
+        task_index=0,
+        inputs=np.full((2, 1), np.float32(1e30), dtype=np.float32),
+        labels=np.asarray((0, 1), dtype=np.int32),
+    )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        native_suite._run_arm((task,), n_classes=2, capacity=1, arm_id=arm_id)
+
+
+def test_centroid_arm_rejects_nonfinite_numeric_state_from_finite_inputs() -> None:
+    task = native_suite.TaskBatch(
+        task_index=0,
+        inputs=np.full((2, 1), np.float32(3e38), dtype=np.float32),
+        labels=np.asarray((0, 0), dtype=np.int32),
+    )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        native_suite._run_arm((task,), n_classes=2, capacity=1, arm_id="running_centroid")
 
 
 def test_catalog_cli_is_metadata_only(capsys: pytest.CaptureFixture[str]) -> None:

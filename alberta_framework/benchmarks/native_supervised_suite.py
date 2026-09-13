@@ -377,8 +377,15 @@ def _run_arm(
         next_weights, next_bias = _sgd_step(
             jnp.asarray(weights), jnp.asarray(bias), jnp.asarray(x), jnp.asarray(label)
         )
-        weights = np.asarray(next_weights, dtype=np.float32)
-        bias = np.asarray(next_bias, dtype=np.float32)
+        candidate_weights = np.asarray(next_weights, dtype=np.float32)
+        candidate_bias = np.asarray(next_bias, dtype=np.float32)
+        if not (
+            np.all(np.isfinite(candidate_weights))
+            and np.all(np.isfinite(candidate_bias))
+        ):
+            raise ValueError("SGD update produced non-finite numeric state")
+        weights = candidate_weights
+        bias = candidate_bias
         updates += 1
 
     for task in tasks:
@@ -386,12 +393,23 @@ def _run_arm(
         for x, raw_label in zip(task.inputs, task.labels, strict=True):
             label = int(raw_label)
             if arm_id == "running_centroid":
-                distances = np.sum((sums / np.maximum(counts[:, None], 1) - x) ** 2, axis=1)
-                distances = np.where(counts > 0, distances, np.inf)
-                prediction = int(np.argmin(distances)) if np.any(counts > 0) else 0
+                active = counts > 0
+                if np.any(active):
+                    with np.errstate(over="ignore", invalid="ignore"):
+                        means = sums / np.maximum(counts[:, None], 1)
+                        distances = np.sum((means - x) ** 2, axis=1)
+                    if not np.all(np.isfinite(distances[active])):
+                        raise ValueError("centroid prediction produced non-finite numeric values")
+                    prediction = int(np.argmin(np.where(active, distances, np.inf)))
+                else:
+                    prediction = 0
                 queries += 1
             else:
-                prediction = int(np.argmax(x @ weights + bias))
+                with np.errstate(over="ignore", invalid="ignore"):
+                    logits = x @ weights + bias
+                if not np.all(np.isfinite(logits)):
+                    raise ValueError("linear prediction produced non-finite numeric values")
+                prediction = int(np.argmax(logits))
                 queries += 1
             hit = int(prediction == label)
             correct += hit
@@ -414,7 +432,11 @@ def _run_arm(
                     # another observation: repeat the current real example.
                     linear_update(x, label)
             elif arm_id == "running_centroid":
-                sums[label] += x
+                with np.errstate(over="ignore", invalid="ignore"):
+                    candidate_sum = sums[label] + x
+                if not np.all(np.isfinite(candidate_sum)):
+                    raise ValueError("centroid update produced non-finite numeric state")
+                sums[label] = candidate_sum
                 counts[label] += 1
                 updates += 1
             real_seen += 1
