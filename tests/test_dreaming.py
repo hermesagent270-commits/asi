@@ -431,7 +431,7 @@ def test_dream_rollout_rejects_mismatched_next_observation_shape(
         jr.key(23),
     )
 
-    with pytest.raises(ValueError, match=r"next_observation must have shape \(2,\)"):
+    with pytest.raises(ValueError) as error:
         if mode == "eager":
             dream_one_step(world, world_state, behavior, behavior_state, initial)
         else:
@@ -443,6 +443,7 @@ def test_dream_rollout_rejects_mismatched_next_observation_shape(
                 initial,
                 DreamRolloutConfig(rollout_horizon=2),
             )
+    assert str(error.value) == f"next_observation must have shape (2,); got {shape}"
 
 
 @pytest.mark.parametrize("field", ["reward", "discount", "confidence", "model_error"])
