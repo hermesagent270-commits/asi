@@ -98,6 +98,7 @@ Signature: ``(observation, reward, terminated) -> Array(n_demons,)``.
 
 _INT32_MAX: int = 2**31 - 1
 _MAX_CONFIG_SEQUENCE_LENGTH: int = 4096
+_PIPELINE_PRNG_IMPLEMENTATION = "threefry2x32"
 # Public last-fit in tests is run_arrays length 2 and smoke steps=8.
 # Origin scanned INT32-legal array lengths — hang, not leftover INT32 math.
 _PIPELINE_SCAN_BUDGET = ScanBudget("Step 1-4 pipeline", maximum_steps=10_000)
@@ -191,7 +192,7 @@ def _require_typed_key(name: str, value: object) -> Array:
         raise TypeError(f"{name} must be a scalar typed JAX PRNG key") from error
     if shape != () or words.shape != (2,) or words.dtype != jnp.uint32:
         raise TypeError(f"{name} must be a scalar typed JAX PRNG key")
-    if implementation != "threefry2x32":
+    if implementation != _PIPELINE_PRNG_IMPLEMENTATION:
         raise ValueError(f"{name} must use Threefry2x32")
     return cast(Array, value)
 
@@ -1861,7 +1862,9 @@ def run_pipeline_smoke(
 
     observation_dim = pipeline._observation_dim()  # noqa: SLF001
 
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(
+        jr.key(seed, impl=_PIPELINE_PRNG_IMPLEMENTATION)
+    )
     if cfg.step2 == "associative" and cfg.associative is not None:
         observations = jr.randint(
             data_key,
