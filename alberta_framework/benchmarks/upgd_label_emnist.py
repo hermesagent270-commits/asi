@@ -127,6 +127,7 @@ from alberta_framework.benchmarks.upgd_ipmnist import (
 from alberta_framework.core._float32_scalars import validated_float32_scalar
 
 _INT32_MAX = 2**31 - 1
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 _ACTUAL_INT_TYPES: frozenset[type] = frozenset(
     {int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")}
@@ -692,7 +693,7 @@ def run_label_emnist(
     initialization_config = IPMNISTConfig(**config.to_config())
 
     def init_seed(seed: Array) -> tuple[dict[str, Array], Any, LabelEMNISTSchedule, Array]:
-        root = jr.key(seed)
+        root = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
         key_init, key_schedule, key_noise = jr.split(root, 3)
         params = init_mlp_params(key_init, initialization_config)
         return params, init_fn(params), build_schedule(key_schedule, config, n_train), key_noise
