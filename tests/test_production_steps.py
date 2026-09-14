@@ -7,6 +7,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Literal
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -595,6 +596,24 @@ def test_step2_kernel_factory_and_smoke_are_finite() -> None:
     assert result.final_window_mse >= 0.0
     assert result.learner_config["loss_normalization"] == "target_structure"
     assert result.to_dict()["config"] == config.to_dict()
+
+
+def test_step2_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step2_smoke(steps=2, final_window=1, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step2_smoke(steps=2, final_window=1, seed=17)
+
+    assert observed == expected
+
+
+def test_step2_associative_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step2_associative_smoke(steps=2, window=1, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step2_associative_smoke(steps=2, window=1, seed=17)
+
+    assert observed == expected
 
 
 def test_step2_strict_digit_readout_factory_exposes_promoted_branch() -> None:
