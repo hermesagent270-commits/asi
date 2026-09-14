@@ -13,6 +13,7 @@ from fractions import Fraction
 from typing import Any
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -515,6 +516,14 @@ class TestStep7Smoke:
         assert isinstance(result, Step7SmokeResult)
         assert result.finite
         assert result.steps == 16
+
+    def test_rng_is_independent_of_default_prng_impl(self) -> None:
+        with jax.default_prng_impl("threefry2x32"):
+            expected = run_step7_smoke(steps=1, seed=17)
+        with jax.default_prng_impl("rbg"):
+            observed = run_step7_smoke(steps=1, seed=17)
+
+        assert observed == expected
 
     def test_smoke_shapes(self) -> None:
         result = run_step7_smoke(steps=8, seed=42)
