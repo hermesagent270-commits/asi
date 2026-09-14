@@ -65,6 +65,7 @@ _INT32_MAX = 2**31 - 1
 _UINT32_MAX = 2**32 - 1
 _ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 _FLOAT32_MIN_NORMAL = float.fromhex("0x1.0p-126")
+_STEP3_PRNG_IMPLEMENTATION = "threefry2x32"
 _STEP3_CONFIG_FIELDS = frozenset(
     {
         "gammas",
@@ -181,7 +182,7 @@ def _require_typed_key(name: str, value: object) -> Array:
         key.dtype, jax.dtypes.prng_key
     ):
         raise ValueError(f"{name} must be a scalar typed JAX PRNG key")
-    if str(jr.key_impl(key)) != "threefry2x32":
+    if str(jr.key_impl(key)) != _STEP3_PRNG_IMPLEMENTATION:
         raise ValueError(f"{name} must use Threefry2x32")
     return key
 
@@ -907,7 +908,7 @@ def run_step3_smoke(
         constructed_dim=constructed_feature_dim,
         n_demons=cfg.n_demons,
     )
-    data_key, learner_key = jr.split(jr.key(seed))
+    data_key, learner_key = jr.split(jr.key(seed, impl=_STEP3_PRNG_IMPLEMENTATION))
     raw_observations = jr.normal(data_key, (steps, raw_feature_dim))
     constructed_features = _synthetic_step2_features(
         raw_observations, constructed_feature_dim
