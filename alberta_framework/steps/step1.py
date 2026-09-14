@@ -67,6 +67,7 @@ _VALID_NORMALIZERS: frozenset[str] = frozenset({"none", "ema", "welford", "strea
 _VALID_STREAMS: frozenset[str] = frozenset({"alberta", "xdist_shift"})
 _INT32_MAX: int = 2**31 - 1
 _MAX_RESOURCE_BYTES: int = 256 * 1024 * 1024
+_STEP1_PRNG_IMPLEMENTATION = "threefry2x32"
 _ACTUAL_INT_TYPES = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 _ACTUAL_FLOAT_TYPES = (
         float,
@@ -509,7 +510,7 @@ def run_step1_smoke(
             learner,
             cast(Any, stream),
             num_steps=steps,
-            key=jr.key(seed),
+            key=jr.key(seed, impl=_STEP1_PRNG_IMPLEMENTATION),
         ),
     )
     metrics = loop_result[1]

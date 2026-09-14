@@ -7,6 +7,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Literal
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -61,6 +62,15 @@ def test_step1_kernel_factory_and_smoke_are_finite() -> None:
     assert result.metrics_shape == (16, 4)
     assert result.final_window_mse >= 0.0
     assert result.to_dict()["config"] == config.to_dict()
+
+
+def test_step1_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step1_smoke(steps=2, final_window=1, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step1_smoke(steps=2, final_window=1, seed=17)
+
+    assert observed == expected
 
 
 @pytest.mark.parametrize(
