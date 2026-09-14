@@ -20,6 +20,7 @@ from alberta_framework.benchmarks.nap_ipmnist import (
     PLASTICINE_COMMIT,
     NaPCatalogEntry,
     NaPResult,
+    _run_arm,
     main,
     qualification_gates,
     run_comparator,
@@ -207,6 +208,31 @@ def test_schedule_is_frozen_and_seed_specific() -> None:
     assert not first.task_ids_visible_to_learner
 
 
+def test_seeded_comparator_ignores_ambient_prng_default() -> None:
+    """A frozen arm seed must bind one trajectory across JAX defaults."""
+
+    profile = PROFILES["contract-smoke"]
+    images, labels = _fixture()
+    tasks = tuple(
+        (
+            images[: profile.examples_per_task].copy(),
+            labels[: profile.examples_per_task].copy(),
+        )
+        for _ in range(profile.n_tasks)
+    )
+
+    def trajectory() -> tuple[tuple[float, ...], str]:
+        arm = _run_arm("sgd_current_control", tasks, profile, FROZEN_SEEDS[0])
+        return arm.task_loss, arm.final_state_sha256
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = trajectory()
+    with jax.default_prng_impl("rbg"):
+        actual = trajectory()
+
+    assert actual == expected
+
+
 def test_result_binds_the_complete_immutable_profile() -> None:
     result = _result()
     assert result.profile == PROFILES[result.profile_id]
@@ -302,4 +328,3 @@ def test_cli_rejects_compressed_oversize_members_before_materialize(
     monkeypatch.setattr(np, "load", _forbidden_load)
     with pytest.raises(ValueError, match="unbounded"):
         main(("--dataset", str(dataset), "--seed", str(FROZEN_SEEDS[0])))
-
