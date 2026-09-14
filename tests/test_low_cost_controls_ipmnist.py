@@ -3,6 +3,7 @@
 import dataclasses
 import math
 
+import jax
 import numpy as np
 import pytest
 
@@ -254,3 +255,30 @@ def test_model_queries_bill_the_post_task_diagnostic_forward() -> None:
 
     steps = profile.n_tasks * profile.examples_per_task
     assert result.model_queries == 2 * steps + profile.n_tasks
+
+
+def test_seeded_comparator_ignores_ambient_prng_default() -> None:
+    """A frozen seed must identify one trajectory on every JAX host default."""
+
+    profile = PROFILES["contract-smoke"]
+    tasks = tuple(
+        (
+            np.full(
+                (profile.examples_per_task, 784),
+                fill_value=(task_index + 1) / 10.0,
+                dtype=np.float32,
+            ),
+            np.arange(profile.examples_per_task, dtype=np.int32) % 10,
+        )
+        for task_index in range(profile.n_tasks)
+    )
+
+    def losses() -> tuple[float, ...]:
+        return _run_arm("sgd_current_control", tasks, profile, seed=FROZEN_SEEDS[0]).task_loss
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = losses()
+    with jax.default_prng_impl("rbg"):
+        actual = losses()
+
+    assert actual == expected
