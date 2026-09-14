@@ -46,6 +46,7 @@ _BATCH_TRAIN_SIZE = 60_000
 _MIN_BATCH_SIZE = 32
 _MAX_BATCH_EPOCHS = 30
 _MAX_BATCH_UPDATES = 50_000
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 def _load_train() -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
@@ -68,7 +69,7 @@ def run_arm_per_step(
     data_x_numpy, data_y_numpy = _load_train()
     data_x = jnp.asarray(data_x_numpy, dtype=jnp.float32)
     data_y = jnp.asarray(data_y_numpy, dtype=jnp.int32)
-    root = jr.key(jnp.uint32(seed))
+    root = jr.key(jnp.uint32(seed), impl=_PRNG_IMPLEMENTATION)
     key_init, key_schedule, key_noise = jr.split(root, 3)
     params = init_mlp_params(key_init, config)
     schedule = build_schedule(key_schedule, config, int(data_x.shape[0]))
@@ -407,7 +408,9 @@ def run_batch_reference(
     test_x = jnp.asarray(observations[60_000:])
     test_y = jnp.asarray(labels[60_000:])
     config = IPMNISTConfig(n_tasks=1)
-    params = init_mlp_params(jr.key(jnp.uint32(seed)), config)
+    params = init_mlp_params(
+        jr.key(jnp.uint32(seed), impl=_PRNG_IMPLEMENTATION), config
+    )
 
     def loss_fn(model: Any, batch_x: Any, batch_y: Any) -> Any:
         hidden1 = jax.nn.relu(batch_x @ model["w1"] + model["b1"])
