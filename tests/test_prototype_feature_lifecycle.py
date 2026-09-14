@@ -446,6 +446,22 @@ def test_init_augmentation_state_and_exact_resource_contracts() -> None:
     assert budget.scientific_promotion_allowed is False
 
 
+def test_internal_templates_and_resource_budget_ignore_ambient_prng_default() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = PrototypeFeatureLifecycle(_config()).resource_budget().to_config()
+    with jax.default_prng_impl("rbg"):
+        observed = PrototypeFeatureLifecycle(_config()).resource_budget().to_config()
+
+    assert observed == expected
+
+
+def test_init_rejects_non_threefry_key() -> None:
+    lifecycle = PrototypeFeatureLifecycle(_config())
+
+    with pytest.raises(ValueError, match="threefry2x32"):
+        lifecycle.init(jr.key(7, impl="rbg"))
+
+
 def test_unavailable_diagnostics_are_finite_neutral_and_jax_shape_compatible() -> None:
     lifecycle = PrototypeFeatureLifecycle(_config())
     state = lifecycle.init(jr.key(4))
@@ -1084,6 +1100,20 @@ def test_checkpoint_round_trip_is_strict_and_resource_bound(
             corrupt,
             tmp_path / "corrupt",
         )
+
+
+def test_checkpoint_restore_ignores_ambient_prng_default(tmp_path: Path) -> None:
+    lifecycle = PrototypeFeatureLifecycle(_config(replacement_interval=0))
+    state = lifecycle.init(jr.key(31, impl="threefry2x32"))
+    path = tmp_path / "feature-lifecycle-ambient-prng"
+    save_prototype_feature_lifecycle_checkpoint(lifecycle, state, path)
+
+    with jax.default_prng_impl("rbg"):
+        restored_lifecycle, restored_state = load_prototype_feature_lifecycle_checkpoint(path)
+
+    assert restored_lifecycle.config == lifecycle.config
+    assert restored_lifecycle.resource_budget(restored_state) == lifecycle.resource_budget(state)
+    _assert_tree_exact(restored_state, state)
 
 
 @pytest.mark.parametrize(
