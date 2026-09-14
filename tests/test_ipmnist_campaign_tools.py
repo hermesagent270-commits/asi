@@ -7,10 +7,12 @@ import os
 from pathlib import Path
 from typing import Any, BinaryIO
 
+import jax
 import numpy as np
 import pytest
 
 import alberta_framework.benchmarks.ipmnist_campaign_tools as campaign_tools_module
+import alberta_framework.benchmarks.ipmnist_ceiling as ipmnist_ceiling_module
 from alberta_framework.benchmarks.ipmnist_campaign_tools import (
     CONFIRM_ALIGNMENT_ATOL,
     across_seed_spread,
@@ -31,6 +33,7 @@ from alberta_framework.benchmarks.rule_discovery_summary import (
     build_legacy_rule_discovery_summary,
     build_rule_discovery_summary,
 )
+from alberta_framework.benchmarks.upgd_ipmnist import IPMNISTConfig
 
 pytestmark = pytest.mark.unit
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -177,6 +180,38 @@ def _ceiling_run(
 def test_ceiling_runner_rejects_noncanonical_seed_before_work(seed: object) -> None:
     with pytest.raises(ValueError, match="built-in integer.*uint32"):
         run_arm_per_step("unused", seed, 1, "identity")  # type: ignore[arg-type]
+
+
+def test_ceiling_runner_is_independent_of_ambient_prng_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def tiny_config(*, n_tasks: int) -> IPMNISTConfig:
+        return IPMNISTConfig(
+            n_tasks=n_tasks,
+            task_length=8,
+            input_dim=6,
+            hidden1=8,
+            hidden2=4,
+            n_classes=5,
+        )
+
+    observations = np.linspace(-1.0, 1.0, 120, dtype=np.float32).reshape(20, 6)
+    labels = np.arange(20, dtype=np.int32) % 5
+    monkeypatch.setattr(ipmnist_ceiling_module, "IPMNISTConfig", tiny_config)
+    monkeypatch.setattr(
+        ipmnist_ceiling_module, "_load_train", lambda: (observations, labels)
+    )
+
+    with jax.default_prng_impl("threefry2x32"):
+        threefry = run_arm_per_step(
+            "adamw_control", 7, 2, "protocol", progress_every=0
+        )
+    with jax.default_prng_impl("rbg"):
+        rbg = run_arm_per_step("adamw_control", 7, 2, "protocol", progress_every=0)
+
+    np.testing.assert_array_equal(threefry[0], rbg[0])
+    np.testing.assert_array_equal(threefry[1], rbg[1])
+    assert threefry[3]["schedule"] == rbg[3]["schedule"]
 
 
 @pytest.mark.parametrize(
