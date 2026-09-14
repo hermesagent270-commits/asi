@@ -875,6 +875,15 @@ def test_pipeline_smoke_accepts_full_uint32_seed_domain(seed: int) -> None:
     assert result.seed == seed
 
 
+def test_pipeline_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_pipeline_smoke(steps=2, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_pipeline_smoke(steps=2, seed=17)
+
+    assert observed == expected
+
+
 def test_pipeline_associative_requires_ordered_weight_bounds() -> None:
     with pytest.raises(ValueError, match="max_weight must be >= min_weight"):
         Step2AssociativePipelineConfig(min_weight=2.0, max_weight=1.0)
