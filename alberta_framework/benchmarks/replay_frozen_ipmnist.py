@@ -47,6 +47,7 @@ _DOMAIN_RANDUMB: Final = 0x52414E44
 _DOMAIN_RANPAC: Final = 0x52504143
 _DOMAIN_PROL: Final = 0x50524F4C
 _INT32_MAX: Final = (1 << 31) - 1
+_PRNG_IMPLEMENTATION: Final = "threefry2x32"
 
 
 def _skip_zero_scale(scale: float, value: Array) -> Array:
@@ -81,7 +82,9 @@ class FrozenFeatureState:
 
 def _key_from_params(params: dict[str, Array], domain: int) -> Array:
     bits = jax.lax.bitcast_convert_type(params["w1"].reshape(-1), jnp.uint32)
-    key = jr.fold_in(jr.key(jnp.uint32(domain)), bits[0])
+    key = jr.fold_in(
+        jr.key(jnp.uint32(domain), impl=_PRNG_IMPLEMENTATION), bits[0]
+    )
     return jr.fold_in(key, bits[-1])
 
 

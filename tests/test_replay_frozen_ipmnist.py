@@ -127,6 +127,24 @@ def test_active_replay_step_has_eager_jit_parity() -> None:
     "arm",
     ("randumb_random_features", "ranpac_random_projection", "prol_prompt_proxy"),
 )
+def test_frozen_feature_init_is_independent_of_ambient_prng_default(arm: str) -> None:
+    params = init_mlp_params(jr.key(12, impl="threefry2x32"), _config())
+    spec = screening_spec(arm)
+    init_fn, _ = spec.factory(spec.hyperparameters)
+
+    with jax.default_prng_impl("threefry2x32"):
+        threefry = init_fn(params)
+    with jax.default_prng_impl("rbg"):
+        rbg = init_fn(params)
+
+    np.testing.assert_array_equal(threefry.projection, rbg.projection)
+    np.testing.assert_array_equal(threefry.phase, rbg.phase)
+
+
+@pytest.mark.parametrize(
+    "arm",
+    ("randumb_random_features", "ranpac_random_projection", "prol_prompt_proxy"),
+)
 def test_frozen_feature_steps_are_jittable_and_leave_ballast_params_frozen(
     arm: str,
 ) -> None:
