@@ -291,6 +291,15 @@ def test_step6_facade_config_roundtrip_one_step_and_smoke() -> None:
     assert smoke.agent_config["type"] == "DifferentialSARSAAgent"
 
 
+def test_step6_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step6_smoke(steps=1, feature_dim=1, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step6_smoke(steps=1, feature_dim=1, seed=17)
+
+    assert observed == expected
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     (("steps", True), ("steps", 1.5), ("feature_dim", False), ("feature_dim", 1.5)),
