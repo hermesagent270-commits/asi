@@ -8,6 +8,7 @@ tiny synthetic smoke run. Benchmark executions never happen inside pytest.
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -390,6 +391,79 @@ class TestEMNISTArrayCache:
 
         with pytest.raises(RuntimeError, match="does not match its pinned digests"):
             upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+    def test_cache_rejects_oversize_npy_header_before_materialize(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        x_path, y_path, meta_path = upgd_label_emnist._npy_cache_paths(tmp_path)
+        header = BytesIO()
+        np.lib.format.write_array_header_2_0(
+            header,
+            {
+                "descr": np.lib.format.dtype_to_descr(np.dtype(np.float32)),
+                "fortran_order": False,
+                "shape": (upgd_label_emnist.EMNIST_TRAIN_ROWS + 1, 784),
+            },
+        )
+        x_path.write_bytes(header.getvalue())
+        np.save(y_path, np.asarray([0], dtype=np.int32))
+        meta_path.write_text("{}", encoding="utf-8")
+
+        def forbidden_load(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("np.load must not run after an oversized npy header")
+
+        monkeypatch.setattr(np, "load", forbidden_load)
+        with pytest.raises(ValueError, match="cache array exceeds its element budget"):
+            upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+    def test_cache_rejects_wrong_dtype_before_materialize(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        x = np.asarray([[0.0]], dtype=np.float64)
+        y = np.asarray([0], dtype=np.int32)
+        self._write_cache(tmp_path, x, y, json.dumps(self._metadata(x, y)))
+
+        def forbidden_load(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("np.load must not run after a wrong-dtype npy header")
+
+        monkeypatch.setattr(np, "load", forbidden_load)
+        with pytest.raises(ValueError, match="cache array has an invalid dtype"):
+            upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+    def test_cache_rejects_wrong_byte_extent_before_materialize(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        x = np.asarray([[0.0]], dtype=np.float32)
+        y = np.asarray([0], dtype=np.int32)
+        self._write_cache(tmp_path, x, y, json.dumps(self._metadata(x, y)))
+        x_path, _y_path, _meta_path = upgd_label_emnist._npy_cache_paths(tmp_path)
+        with x_path.open("ab") as handle:
+            handle.write(b"trailing data")
+
+        def forbidden_load(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("np.load must not run after a wrong npy byte extent")
+
+        monkeypatch.setattr(np, "load", forbidden_load)
+        with pytest.raises(ValueError, match="cache array has an invalid byte extent"):
+            upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+    def test_cache_loads_with_pickle_disabled(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        x = np.asarray([[0.0]], dtype=np.float32)
+        y = np.asarray([0], dtype=np.int32)
+        self._write_cache(tmp_path, x, y, json.dumps(self._metadata(x, y)))
+        original_load = np.load
+        pickle_values: list[object] = []
+
+        def tracked_load(*args: object, **kwargs: object) -> object:
+            pickle_values.append(kwargs.get("allow_pickle"))
+            return original_load(*args, **kwargs)
+
+        monkeypatch.setattr(np, "load", tracked_load)
+        upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+        assert pickle_values == [False, False]
 
 
 @pytest.mark.parametrize(
