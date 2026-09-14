@@ -75,6 +75,7 @@ PROTOTYPE_FEATURE_LIFECYCLE_SCIENTIFIC_PROMOTION_ALLOWED = False
 
 _CONFIG_TYPE = "PrototypeFeatureLifecycleConfig"
 _INT32_MAX = 2_147_483_647
+_PROTOTYPE_FEATURE_LIFECYCLE_PRNG_IMPLEMENTATION = "threefry2x32"
 _ACTUAL_INT_TYPES = (
     int,
     *(np.dtype(code).type for code in ("b", "B", "h", "H", "i", "I", "l", "L", "q", "Q")),
@@ -86,6 +87,26 @@ _MAX_MANAGED_CONSUMER_SCALARS = 8_388_608
 _MAX_DESCRIPTOR_COMPARISON_CELLS = 4_194_304
 _MAX_ENUMERATED_PAIR_SPACE = 65_536
 _MAX_PYTHON_COLLECTION_LENGTH = 4_096
+
+
+def _require_typed_threefry_key(name: str, value: object) -> Array:
+    """Require one scalar typed Threefry key at the lifecycle boundary."""
+
+    if not (
+        hasattr(value, "shape")
+        and hasattr(value, "dtype")
+        and value.shape == ()
+        and jax.dtypes.issubdtype(value.dtype, jax.dtypes.prng_key)
+    ):
+        raise TypeError(f"{name} must be a scalar typed JAX PRNG key")
+    key = cast(Array, value)
+    try:
+        implementation = str(jr.key_impl(key))
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{name} must be a scalar typed JAX PRNG key") from error
+    if implementation != _PROTOTYPE_FEATURE_LIFECYCLE_PRNG_IMPLEMENTATION:
+        raise ValueError(f"{name} must use threefry2x32")
+    return key
 
 
 def _strict_int(
@@ -982,7 +1003,9 @@ class PrototypeFeatureLifecycle:
                 active_slots=config.active_pair_slots,
             )
         )
-        self._learner_template = self._initial_learner_state(jr.key(0))
+        self._learner_template = self._initial_learner_state(
+            jr.key(0, impl=_PROTOTYPE_FEATURE_LIFECYCLE_PRNG_IMPLEMENTATION)
+        )
         self._oak_template = self._make_oak_template()
 
     @property
@@ -1096,18 +1119,14 @@ class PrototypeFeatureLifecycle:
                 )
             )
         )
-        return agent.init(jr.key(0))
+        return agent.init(
+            jr.key(0, impl=_PROTOTYPE_FEATURE_LIFECYCLE_PRNG_IMPLEMENTATION)
+        )
 
     def init(self, key: Array) -> PrototypeFeatureLifecycleState:
         """Initialize a unique canonical bank and zero lifecycle counters."""
 
-        if not (
-            hasattr(key, "shape")
-            and hasattr(key, "dtype")
-            and key.shape == ()
-            and jax.dtypes.issubdtype(key.dtype, jax.dtypes.prng_key)
-        ):
-            raise TypeError("key must be a scalar typed JAX PRNG key")
+        key = _require_typed_threefry_key("key", key)
         learner_state = self._initial_learner_state(key)
         descriptors = jnp.stack(
             (learner_state.feature_left, learner_state.feature_right),
@@ -1490,7 +1509,16 @@ class PrototypeFeatureLifecycle:
     ) -> PrototypeFeatureLifecycleResourceBudget:
         """Return exact owned bytes and static consumer/work bounds."""
 
-        measured = self.init(jr.key(0)) if state is None else state
+        measured = (
+            self.init(
+                jr.key(
+                    0,
+                    impl=_PROTOTYPE_FEATURE_LIFECYCLE_PRNG_IMPLEMENTATION,
+                )
+            )
+            if state is None
+            else state
+        )
         if not self._state_static_contract_valid(measured):
             raise ValueError("prototype feature lifecycle state has an invalid static contract")
         width = self._config.total_feature_dim
@@ -2134,7 +2162,9 @@ def load_prototype_feature_lifecycle_checkpoint(
     if type(raw_config) is not dict:
         raise ValueError("prototype feature lifecycle checkpoint config is invalid")
     lifecycle = PrototypeFeatureLifecycle.from_config(raw_config)
-    template = lifecycle.init(jr.key(0))
+    template = lifecycle.init(
+        jr.key(0, impl=_PROTOTYPE_FEATURE_LIFECYCLE_PRNG_IMPLEMENTATION)
+    )
     restored, restored_metadata = load_checkpoint(template, path)
     if not _exact_json_tree_equal(restored_metadata, metadata):
         raise ValueError("prototype feature lifecycle checkpoint metadata changed between reads")
