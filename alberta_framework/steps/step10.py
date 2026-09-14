@@ -204,6 +204,7 @@ class Step10STOMPConfig:
 
 
 _INT32_MAX = 2**31 - 1
+_STEP10_PRNG_IMPLEMENTATION = "threefry2x32"
 _MAX_SUBTASK_SPECS = 4_096
 _MAX_PLANNING_BACKUPS_PER_STEP = 4_096
 _STEP10_CONFIG_FIELDS = frozenset(
@@ -727,7 +728,7 @@ def run_step10_smoke(
     agent = make_step10_stomp_agent(cfg)
     obs_dim = cfg.observation_dim
 
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(jr.key(seed, impl=_STEP10_PRNG_IMPLEMENTATION))
     observations = jr.normal(data_key, (steps + 1, obs_dim), dtype=jnp.float32)
     rewards = jnp.tanh(observations[1:, 0])
 

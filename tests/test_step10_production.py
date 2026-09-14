@@ -12,6 +12,7 @@ import json
 from typing import Any
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -867,6 +868,19 @@ def test_run_step10_smoke_custom_config() -> None:
     assert result.finite
     assert result.td_errors_shape == (32,)
     assert result.executing_options_shape == (32,)
+
+
+def test_run_step10_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    cfg = Step10STOMPConfig(
+        subtask_specs=(_SPEC1,),
+        option_planning_backups_per_step=2,
+    )
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step10_smoke(cfg, steps=16, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step10_smoke(cfg, steps=16, seed=17)
+
+    assert observed == expected
 
 
 def test_run_step10_smoke_to_dict_roundtrip() -> None:
