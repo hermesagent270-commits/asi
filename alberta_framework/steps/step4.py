@@ -59,6 +59,7 @@ Step4BounderName = Literal["none", "obgd"]
 _INT32_MAX = 2**31 - 1
 _ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 _FLOAT32_MIN_NORMAL = float.fromhex("0x1.0p-126")
+_STEP4_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 @dataclass(frozen=True)
@@ -466,7 +467,7 @@ def run_step4_smoke(
 
     cfg = config or Step4SARSAConfig()
     agent = make_step4_sarsa_agent(cfg)
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(jr.key(seed, impl=_STEP4_PRNG_IMPLEMENTATION))
     observations = jr.normal(data_key, (steps + 1, feature_dim), dtype=jnp.float32)
     rewards = jnp.tanh(observations[1:, 0])
     terminated = jnp.zeros(steps, dtype=jnp.float32)
