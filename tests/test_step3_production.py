@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -158,6 +159,27 @@ def test_step3_smoke_is_finite_and_serializable() -> None:
     assert isinstance(horde_config, dict)
     assert handoff["n_demons"] == 2
     assert horde_config["type"] == "HordeLearner"
+
+
+def test_step3_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step3_smoke(steps=2, final_window=1, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step3_smoke(steps=2, final_window=1, seed=17)
+
+    assert observed.to_dict() == expected.to_dict()
+    chex.assert_trees_all_equal(
+        (
+            observed.handoff.observations,
+            observed.handoff.cumulants,
+            observed.handoff.next_observations,
+        ),
+        (
+            expected.handoff.observations,
+            expected.handoff.cumulants,
+            expected.handoff.next_observations,
+        ),
+    )
 
 
 @pytest.mark.parametrize(
