@@ -1070,6 +1070,15 @@ def test_run_step11_smoke_defaults() -> None:
     assert result.utility_emas_shape == (64, 1)
 
 
+def test_step11_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step11_smoke(steps=1, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step11_smoke(steps=1, seed=17)
+
+    assert observed == expected
+
+
 def test_run_step11_smoke_two_specs() -> None:
     cfg = Step11OaKConfig(
         subtask_specs=(_SPEC0, _SPEC1),
