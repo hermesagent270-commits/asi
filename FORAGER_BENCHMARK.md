@@ -134,7 +134,10 @@ the distinct implementation label `alberta_rtu_rtrl_ac` so it cannot be
 relabelled as the fixed-GRU Horde variant. Schema `2.4` is required for the
 RTU core's opt-in adaptive-ObGD fields (`adaptive_obgd`, `beta2`, and
 `epsilon`). Schema `2.3` rejects those fields even when they spell their
-defaults, preserving its canonical configuration hashes.
+defaults, preserving its canonical configuration hashes. Schema `2.5` keeps
+the `2.4` variant semantics and adds the explicit `threefry2x32`
+implementation to the hash-bound RNG contract. New matrices should use `2.5`;
+the `2.2`--`2.4` contract payloads and digests remain unchanged.
 
 An RTU entry may supply partial, strictly typed nested overrides. Omitted
 values normalize to the complete configuration before hashing:
@@ -167,8 +170,8 @@ ZIP/NPY encoding, array inventory, and independently recomputes every reported
 metric. The matrix configuration, RTU algorithm metadata, disjoint agent RNG
 namespace, source snapshot, batches, summaries, and selection ranking are all
 hash-bound. Host and snapshot-subprocess executions remain explicitly
-unsealed; neither schema `2.3` nor `2.4` promotes scientific evidence by
-itself.
+unsealed; schemas `2.3`--`2.5` do not promote scientific evidence by
+themselves.
 
 An adaptive variant changes the core block to schema `2.4`, for example
 `{"adaptive_obgd": true, "beta2": 0.999, "epsilon": 1e-8}`. Its raw actor

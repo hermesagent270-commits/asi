@@ -196,10 +196,11 @@ _PRESET_OBSERVATIONS: dict[ForagerPreset, ObservationType] = {
     "unending": "rgb",
 }
 # Arbitrary fixed domain-separation tags.  Each agent family folds its tag
-# into ``jax.random.key(seed)``, making its key stream disjoint from the
+# into a typed Threefry key derived from ``seed``, making its key stream disjoint from the
 # untagged environment chain and from every other family at the same seed.
 # The exact values are frozen: :func:`forager_rng_contract` publishes them and
 # the matrix runner pins a digest of that contract.
+_FORAGER_PRNG_IMPLEMENTATION = "threefry2x32"
 _AGENT_RNG_NAMESPACE = 0x0A1BE47A
 _RECURRENT_RNG_NAMESPACE = 0x6EC0A11E
 _RTU_RTRL_RNG_NAMESPACE = 0x527455AC
@@ -302,20 +303,39 @@ def _validated_action(value: Any) -> int:
     return action
 
 
+def _seed_key(seed: int | Array) -> Array:
+    """Return the canonical Forager root independently of ambient JAX config."""
+    return jr.key(seed, impl=_FORAGER_PRNG_IMPLEMENTATION)
+
+
 def _agent_key(seed: int | Array) -> Array:
     """Return a PRNG root disjoint from the environment's seed namespace."""
-    return jr.fold_in(jr.key(seed), _AGENT_RNG_NAMESPACE)
+    return jr.fold_in(_seed_key(seed), _AGENT_RNG_NAMESPACE)
 
 
 def _rtu_rtrl_key(seed: int | Array) -> Array:
     """Return an RTU policy root disjoint from every environment key."""
-    return jr.fold_in(jr.key(seed), _RTU_RTRL_RNG_NAMESPACE)
+    return jr.fold_in(_seed_key(seed), _RTU_RTRL_RNG_NAMESPACE)
 
 
-def forager_rng_contract() -> dict[str, Any]:
-    """Describe the seed schedule used by the compiled Alberta runners."""
-    return {
-        "schema_version": "alberta.forager_rng_schedule.v1",
+def forager_rng_contract(
+    *,
+    bind_prng_implementation: bool = True,
+) -> dict[str, Any]:
+    """Describe the seed schedule used by the compiled Alberta runners.
+
+    The default v2 payload binds the root implementation.  Matrix schemas
+    2.2--2.4 request the historical v1 representation so their immutable
+    contract digests remain verifiable.
+    """
+    if type(bind_prng_implementation) is not bool:
+        raise ValueError("bind_prng_implementation must be a boolean")
+    contract = {
+        "schema_version": (
+            "alberta.forager_rng_schedule.v2"
+            if bind_prng_implementation
+            else "alberta.forager_rng_schedule.v1"
+        ),
         "identity": FORAGER_ENVIRONMENT_RNG_SCHEDULE,
         "environment": {
             "root": "jax.random.key(seed)",
@@ -333,6 +353,9 @@ def forager_rng_contract() -> dict[str, Any]:
             "environment_key_shared_with_agent": False,
         },
     }
+    if bind_prng_implementation:
+        contract["prng_implementation"] = _FORAGER_PRNG_IMPLEMENTATION
+    return contract
 
 
 def environment_rng_schedule_sha256(
@@ -1074,7 +1097,7 @@ class ForagerRecurrentState(NamedTuple):
 
 def _recurrent_key(seed: int | Array) -> Array:
     """Return a seed-derived key independent of actor and environment RNGs."""
-    return jr.fold_in(jr.key(seed), _RECURRENT_RNG_NAMESPACE)
+    return jr.fold_in(_seed_key(seed), _RECURRENT_RNG_NAMESPACE)
 
 
 def _init_forager_recurrent_state(
@@ -1929,7 +1952,7 @@ def _run_forager_host(
         raise ValueError("policy.privileged must be a boolean")
     overall_started = time.perf_counter()
     env, params = cfg.environment.make()
-    key = jr.key(cfg.seed)
+    key = _seed_key(cfg.seed)
     key, reset_key = jr.split(key)
     observation, env_state = env.reset(reset_key, params)
     context = ForagerAgentContext(env=env, params=params, state=env_state, info={})
@@ -2076,7 +2099,7 @@ def _run_random_forager_scan(
     """Run the uniform-random control in compiled, bounded-memory chunks."""
     overall_started = time.perf_counter()
     env, params = cfg.environment.make()
-    env_key = jr.key(cfg.seed)
+    env_key = _seed_key(cfg.seed)
     env_key, reset_key = jr.split(env_key)
     observation, env_state = env.reset(reset_key, params)
     del observation
@@ -2612,7 +2635,7 @@ def _run_alberta_forager_scan(
     """
     overall_started = time.perf_counter()
     env, params = cfg.environment.make()
-    env_key = jr.key(cfg.seed)
+    env_key = _seed_key(cfg.seed)
     env_key, reset_key = jr.split(env_key)
     observation, env_state = env.reset(reset_key, params)
     jax.block_until_ready((observation, env_state))  # type: ignore[no-untyped-call]
@@ -2909,7 +2932,7 @@ def run_alberta_forager_seeds(
         Array,
         Array,
     ]:
-        env_key = jr.key(seed)
+        env_key = _seed_key(seed)
         env_key, reset_key = jr.split(env_key)
         observation, env_state = env.reset(reset_key, params)
         reward_traces = jnp.zeros(
@@ -3405,7 +3428,7 @@ def _execute_rtu_rtrl_forager_seeds(
     def init_one(
         seed: Array,
     ) -> tuple[Any, Array, Any, Array, Array, Array, Array, Array]:
-        env_key = jr.key(seed)
+        env_key = _seed_key(seed)
         env_key, reset_key = jr.split(env_key)
         observation, env_state = env.reset(reset_key, params)
         reward_traces = jnp.zeros(
