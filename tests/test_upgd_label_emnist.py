@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -260,6 +261,31 @@ class TestScheduleExactness:
 
 
 class TestSeedBoundary:
+    def test_run_is_independent_of_ambient_prng_default(self) -> None:
+        x, y = _tiny_data()
+        with jax.default_prng_impl("threefry2x32"):
+            threefry = run_label_emnist(
+                x, y, "upgd_w", seeds=[7], config=TINY, return_per_step=True
+            )
+        with jax.default_prng_impl("rbg"):
+            rbg = run_label_emnist(
+                x, y, "upgd_w", seeds=[7], config=TINY, return_per_step=True
+            )
+
+        np.testing.assert_array_equal(threefry.per_task_accuracy, rbg.per_task_accuracy)
+        np.testing.assert_array_equal(threefry.per_task_loss, rbg.per_task_loss)
+        np.testing.assert_array_equal(
+            threefry.per_task_plasticity, rbg.per_task_plasticity
+        )
+        np.testing.assert_array_equal(threefry.label_permutations, rbg.label_permutations)
+        np.testing.assert_array_equal(threefry.example_indices, rbg.example_indices)
+        assert threefry.initial_params is not None
+        assert rbg.initial_params is not None
+        for name in threefry.initial_params:
+            np.testing.assert_array_equal(
+                threefry.initial_params[name], rbg.initial_params[name]
+            )
+
     @pytest.mark.parametrize(
         "seeds",
         [
