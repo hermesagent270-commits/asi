@@ -161,6 +161,7 @@ class Step7DynaConfig:
 
 
 _INT32_MAX = 2**31 - 1
+_STEP7_PRNG_IMPLEMENTATION = "threefry2x32"
 _STEP7_CONFIG_FIELDS = frozenset(
     {
         "control",
@@ -532,7 +533,7 @@ def _require_typed_key(name: str, value: object) -> Array:
         raise TypeError(f"{name} must be a scalar typed JAX PRNG key") from error
     if shape != () or words.shape != (2,) or words.dtype != jnp.uint32:
         raise TypeError(f"{name} must be a scalar typed JAX PRNG key")
-    if implementation != "threefry2x32":
+    if implementation != _STEP7_PRNG_IMPLEMENTATION:
         raise ValueError(f"{name} must use Threefry2x32")
     return cast(Array, value)
 
@@ -1410,7 +1411,7 @@ def run_step7_smoke(
     ):
         raise ValueError("derived Step 7 smoke resources exceed signed-int32 bounds")
     agent, model = make_step7_components(cfg)
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(jr.key(seed, impl=_STEP7_PRNG_IMPLEMENTATION))
     observations = jr.normal(
         data_key,
         (steps + 1, cfg.world_model.observation_dim),
