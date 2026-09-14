@@ -203,6 +203,7 @@ class Step11OaKConfig:
 _INT32_MAX = 2**31 - 1
 _MAX_SUBTASK_SPECS = 4_096
 _MAX_PLANNING_BACKUPS_PER_STEP = 4_096
+_STEP11_PRNG_IMPLEMENTATION = "threefry2x32"
 _STEP11_CONFIG_FIELDS = frozenset({"type", *Step11OaKConfig.__dataclass_fields__})
 _SUBTASK_SPEC_FIELDS = frozenset(SubtaskSpec.__dataclass_fields__)
 _ACTUAL_INT_TYPES = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
@@ -353,7 +354,7 @@ def _require_typed_key(name: str, value: object) -> Array:
         raise TypeError(f"{name} must be a scalar typed JAX PRNG key") from error
     if shape != () or words.shape != (2,) or words.dtype != jnp.uint32:
         raise TypeError(f"{name} must be a scalar typed JAX PRNG key")
-    if implementation != "threefry2x32":
+    if implementation != _STEP11_PRNG_IMPLEMENTATION:
         raise ValueError(f"{name} must use Threefry2x32")
     return key
 
@@ -742,7 +743,7 @@ def run_step11_smoke(
     agent = make_step11_oak_agent(cfg)
     obs_dim = cfg.observation_dim
 
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(jr.key(seed, impl=_STEP11_PRNG_IMPLEMENTATION))
     observations = jr.normal(data_key, (steps + 1, obs_dim), dtype=jnp.float32)
     rewards = jnp.tanh(observations[1:, 0])
 
