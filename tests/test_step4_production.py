@@ -9,6 +9,7 @@ import json
 from typing import Any, cast
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -185,6 +186,15 @@ def test_step4_smoke_is_finite_and_serializable() -> None:
     agent_config = payload["agent_config"]
     assert isinstance(agent_config, dict)
     assert agent_config["type"] == "SARSAAgent"
+
+
+def test_step4_smoke_rng_is_independent_of_default_prng_impl() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step4_smoke(steps=2, feature_dim=2, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step4_smoke(steps=2, feature_dim=2, seed=17)
+
+    assert observed == expected
 
 
 def test_step4_smoke_validation() -> None:
@@ -407,5 +417,4 @@ def test_step4_from_dict_schema_validation() -> None:
     bad_hidden["hidden_sizes"] = (16,)
     with pytest.raises(ValueError, match="hidden_sizes must be an exact list"):
         Step4SARSAConfig.from_dict(bad_hidden)
-
 
