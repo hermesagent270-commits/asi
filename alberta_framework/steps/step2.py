@@ -135,6 +135,7 @@ _STEP2_ASSOCIATIVE_CONFIG_KEYS = frozenset(
     }
 )
 _INT32_MAX = 2**31 - 1
+_STEP2_PRNG_IMPLEMENTATION = "threefry2x32"
 # Public last-fit in tests is 128 smoke steps. Origin accepted INT32_MAX
 # and looped range(steps) with no last-fit reject — hang, not leftover INT32 math.
 _STEP2_LOOP_BUDGET = ScanBudget("Step 2 host loop", maximum_steps=10_000)
@@ -1209,7 +1210,7 @@ def run_step2_smoke(
     cfg = cast(Step2KernelConfig, _exact_config_or_default("config", config, Step2KernelConfig))
     learner = make_step2_learner(cfg)
     stream = make_step2_stream(cfg)
-    data_key, learner_key = jr.split(jr.key(seed))
+    data_key, learner_key = jr.split(jr.key(seed, impl=_STEP2_PRNG_IMPLEMENTATION))
     observations, targets = collect_step2_arrays(stream, steps=steps, key=data_key)
     state = learner.init(cfg.feature_dim, learner_key)
     result = run_upgd_arrays(learner, state, observations, targets)
@@ -1255,7 +1256,7 @@ def run_step2_associative_smoke(
     seed = require_jax_seed(seed, name="seed")
     window = _require_int("window", window, minimum=1, maximum=steps // 2)
     pattern_count = min(8, max(2, steps // 8))
-    key = jr.key(seed)
+    key = jr.key(seed, impl=_STEP2_PRNG_IMPLEMENTATION)
     patterns = jr.randint(
         key,
         (pattern_count, cfg.block_size),
