@@ -40,6 +40,7 @@ from alberta_framework.benchmarks.plasticity_diagnostics import (
 )
 
 SCHEMA = "asi.low_cost_controls_ipmnist_comparator.development.v1"
+_PRNG_IMPLEMENTATION = "threefry2x32"
 
 # Pinned authoritative versions. Each preprint is recorded beside the final
 # published record; the published record is authoritative where one exists.
@@ -326,7 +327,7 @@ def _run_arm(
     seed: int,
 ) -> LowCostArmResult:
     preactivation_width = _preactivation_width(arm_id, profile.hidden_width)
-    key = jr.key(seed)
+    key = jr.key(seed, impl=_PRNG_IMPLEMENTATION)
     key, init_key = jr.split(key)
     params = _init_params(init_key, profile.hidden_width, preactivation_width)
 
