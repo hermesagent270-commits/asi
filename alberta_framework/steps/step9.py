@@ -71,6 +71,7 @@ from alberta_framework.steps.step6 import (
 )
 
 _INT32_MAX = 2**31 - 1
+_STEP9_PRNG_IMPLEMENTATION = "threefry2x32"
 _MAX_CONFIG_SEQUENCE_LENGTH = 4_096
 _MAX_DREAM_WORK_PER_REAL_STEP = 4_096
 # Matches the established ceiling for other scan-driven array-loop runners
@@ -1045,7 +1046,7 @@ def run_step9_smoke(
     _preflight_step9_resources(cfg)
     _preflight_step9_smoke_resources(cfg, steps)
     agent, model, buffer = make_step9_components(cfg)
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(jr.key(seed, impl=_STEP9_PRNG_IMPLEMENTATION))
     observations = jr.normal(
         data_key,
         (steps + 1, cfg.observation_dim),
