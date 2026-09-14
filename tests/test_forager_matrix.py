@@ -742,7 +742,6 @@ def test_schema_23_normalizes_rtu_config_and_binds_disjoint_rng_identity() -> No
 
 
 def test_schema_24_is_the_fail_closed_adaptive_obgd_boundary() -> None:
-    assert matrix.FORAGER_MATRIX_LATEST_SCHEMA_VERSION == "2.4"
     for adaptive_field, value in (
         ("adaptive_obgd", False),
         ("beta2", 0.999),
@@ -833,6 +832,41 @@ def test_schema_24_is_the_fail_closed_adaptive_obgd_boundary() -> None:
             bypassed,
             matrix._build_benchmark_config(bypassed),
         )
+
+
+def test_schema_25_binds_threefry_without_rewriting_historical_contracts() -> None:
+    assert matrix.FORAGER_MATRIX_LATEST_SCHEMA_VERSION == "2.5"
+    payload = _manifest_payload(
+        schema_version="2.5",
+        variants={
+            "rtu": _rtu(
+                {
+                    "core": {
+                        "adaptive_obgd": True,
+                        "beta2": 0.95,
+                        "epsilon": 1e-6,
+                    }
+                }
+            )
+        },
+    )
+
+    manifest = matrix.parse_forager_matrix_manifest(payload)
+    assert manifest.schema_version == "2.5"
+    matrix._preflight_manifest(manifest, matrix._build_benchmark_config(manifest))
+
+    historical = matrix._matrix_rng_contract("2.4")
+    current = matrix._matrix_rng_contract("2.5")
+    assert historical["schema_version"] == "alberta.forager_rng_schedule.v1"
+    assert "prng_implementation" not in historical
+    assert matrix._json_sha256(historical) == (
+        matrix._EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_4
+    )
+    assert current["schema_version"] == "alberta.forager_rng_schedule.v2"
+    assert current["prng_implementation"] == "threefry2x32"
+    assert matrix._json_sha256(current) == (
+        matrix._EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_5
+    )
 
 
 def test_schema_23_rtu_parser_fails_closed_on_core_and_resource_tamper() -> None:

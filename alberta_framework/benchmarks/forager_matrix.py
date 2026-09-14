@@ -6,10 +6,11 @@ configuration before doing any benchmark work, and writes immutable,
 self-hashing batch artifacts.  A later invocation resumes only when every
 existing byte belongs to the same configuration and execution environment.
 
-Input manifest schemas ``2.2``, ``2.3``, and ``2.4`` share the same evidence
+Input manifest schemas ``2.2`` through ``2.5`` share the same evidence
 contract.  Schema ``2.2`` retains its original two variant kinds exactly;
 schema ``2.3`` adds the trainable RTU/RTRL variant without broadening the older
-schema, and schema ``2.4`` adds its opt-in adaptive-ObGD fields::
+schema, schema ``2.4`` adds its opt-in adaptive-ObGD fields, and schema ``2.5``
+binds the Forager PRNG implementation in the hashed RNG contract::
 
     {
       "schema_version": "2.2",
@@ -147,12 +148,14 @@ from alberta_framework.core.recurrent_trace_actor_critic import (
 FORAGER_MATRIX_SCHEMA_VERSION = "2.2"
 FORAGER_MATRIX_SCHEMA_VERSION_2_3 = "2.3"
 FORAGER_MATRIX_SCHEMA_VERSION_2_4 = "2.4"
-FORAGER_MATRIX_LATEST_SCHEMA_VERSION = FORAGER_MATRIX_SCHEMA_VERSION_2_4
+FORAGER_MATRIX_SCHEMA_VERSION_2_5 = "2.5"
+FORAGER_MATRIX_LATEST_SCHEMA_VERSION = FORAGER_MATRIX_SCHEMA_VERSION_2_5
 FORAGER_MATRIX_SCHEMA_VERSIONS = frozenset(
     {
         FORAGER_MATRIX_SCHEMA_VERSION,
         FORAGER_MATRIX_SCHEMA_VERSION_2_3,
         FORAGER_MATRIX_SCHEMA_VERSION_2_4,
+        FORAGER_MATRIX_SCHEMA_VERSION_2_5,
     }
 )
 FORAGER_MATRIX_EXECUTION_MANIFEST = "alberta_forager_matrix_execution_manifest"
@@ -247,7 +250,8 @@ _PAPER_TIE_BREAK = "variant_id_ascending"
 # ``_json_sha256(_matrix_rng_contract(schema_version))`` (canonical sorted-key
 # JSON, SHA-256) and fails closed on mismatch, so any RNG-affecting source
 # change invalidates existing matrix artifacts instead of silently changing
-# their meaning.  Schema 2.4 keeps the 2.3 contract, hence the equal digests.
+# their meaning.  Schema 2.4 keeps the 2.3 contract, while schema 2.5 adds the
+# explicitly pinned Threefry implementation without rewriting the older bytes.
 _EXPECTED_ENVIRONMENT_RNG_SCHEDULE_SHA256 = (
     "51d811e6fccd2b015b1703f22775f880089bbca3fc8938421ad3e18526882cb0"
 )
@@ -259,6 +263,9 @@ _EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_3 = (
 )
 _EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_4 = (
     "5e748169e2aad9cd4abf012293d6996392950341d8240d5c58f00e4268834ad7"
+)
+_EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_5 = (
+    "edaf44d273b0629511a715d2731a9a17a4ffeb6b63e87543a904de6e58e97aa8"
 )
 # This literal descriptor is frozen into every supported schema's RNG-contract
 # digest.  The namespace is causal_map_forager's ``_CAUSAL_MAP_RNG_NAMESPACE``,
@@ -1207,6 +1214,7 @@ def _parse_variant(
     if schema_version in (
         FORAGER_MATRIX_SCHEMA_VERSION_2_3,
         FORAGER_MATRIX_SCHEMA_VERSION_2_4,
+        FORAGER_MATRIX_SCHEMA_VERSION_2_5,
     ):
         allowed_kinds.add(RTU_RTRL_VARIANT_KIND)
     if kind_value not in allowed_kinds:
@@ -1348,7 +1356,7 @@ def parse_forager_matrix_manifest(
         )
     if schema_version not in FORAGER_MATRIX_SCHEMA_VERSIONS:
         raise ForagerMatrixManifestError(
-            "manifest.schema_version must be '2.2', '2.3', or '2.4'"
+            "manifest.schema_version must be '2.2', '2.3', '2.4', or '2.5'"
         )
     _require_exact_keys(
         payload,
@@ -3064,13 +3072,20 @@ def _matrix_rng_contract(
 ) -> dict[str, Any]:
     if type(schema_version) is not str:
         raise ForagerMatrixError("matrix schema is invalid")
-    rng_contract = forager_rng_contract()
+    if schema_version not in FORAGER_MATRIX_SCHEMA_VERSIONS:
+        raise ForagerMatrixError(f"unsupported matrix schema {schema_version!r}")
+    rng_contract = forager_rng_contract(
+        bind_prng_implementation=(
+            schema_version == FORAGER_MATRIX_SCHEMA_VERSION_2_5
+        )
+    )
     rng_contract["agent_isolation"]["causal_map"] = dict(
         _FROZEN_CAUSAL_MAP_MATRIX_RNG_CONTRACT
     )
     if schema_version in (
         FORAGER_MATRIX_SCHEMA_VERSION_2_3,
         FORAGER_MATRIX_SCHEMA_VERSION_2_4,
+        FORAGER_MATRIX_SCHEMA_VERSION_2_5,
     ):
         metadata = RTURTRLForagerAgent(
             RTURTRLForagerConfig(),
@@ -3082,8 +3097,6 @@ def _matrix_rng_contract(
                 "RTU/RTRL agent RNG metadata",
             )
         )
-    elif schema_version != FORAGER_MATRIX_SCHEMA_VERSION:
-        raise ForagerMatrixError(f"unsupported matrix schema {schema_version!r}")
     return rng_contract
 
 
@@ -3241,9 +3254,10 @@ def _preflight_manifest(
                 if manifest.schema_version not in (
                     FORAGER_MATRIX_SCHEMA_VERSION_2_3,
                     FORAGER_MATRIX_SCHEMA_VERSION_2_4,
+                    FORAGER_MATRIX_SCHEMA_VERSION_2_5,
                 ):
                     raise ValueError(
-                        "alberta_rtu_rtrl requires matrix schema '2.3' or '2.4'"
+                        "alberta_rtu_rtrl requires matrix schema '2.3' or later"
                     )
                 if not isinstance(variant.config, RTURTRLForagerConfig):
                     raise TypeError("kind/config mismatch")
@@ -4200,7 +4214,9 @@ def _protocol_conformance(
         _matrix_rng_contract(manifest.schema_version)
     )
     expected_rng_schedule_sha256 = (
-        _EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_4
+        _EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_5
+        if manifest.schema_version == FORAGER_MATRIX_SCHEMA_VERSION_2_5
+        else _EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_4
         if manifest.schema_version == FORAGER_MATRIX_SCHEMA_VERSION_2_4
         else _EXPECTED_MATRIX_RNG_CONTRACT_SHA256_2_3
         if manifest.schema_version == FORAGER_MATRIX_SCHEMA_VERSION_2_3
