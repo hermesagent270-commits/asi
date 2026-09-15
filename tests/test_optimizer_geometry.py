@@ -517,24 +517,22 @@ def test_geometry_zero_matrix_keeps_its_reserved_valid_zero_answer() -> None:
 
 
 @pytest.mark.parametrize(
-    ("dtype", "subnormal", "operands_flush"),
+    ("dtype", "subnormal"),
     [
-        (np.float32, 2.938736e-39, True),
-        (np.float32, 1.401298e-45, True),
-        (np.float16, 3e-8, False),
+        (np.float32, 2.938736e-39),
+        (np.float32, 1.401298e-45),
+        (np.float16, 3e-8),
     ],
 )
 def test_geometry_magnitude_witness_sees_what_the_arithmetic_loses(
-    dtype: type[np.floating], subnormal: float, operands_flush: bool
+    dtype: type[np.floating], subnormal: float
 ) -> None:
     entries = jnp.asarray(np.full((2, 2), dtype(subnormal)))
-    # Squaring a subnormal underflows in both widths, so the Frobenius norm is
-    # zero either way. Only float32 also flushes the operands themselves, which is
-    # what removes the comparison and the maximum as candidate witnesses, and it
-    # is also what makes the float32 case unrecoverable by any divisor.
+    # Squaring a subnormal underflows in both widths. Whether the operands
+    # themselves flush depends on the backend, not solely on their dtype.
     assert float(jnp.linalg.norm(entries)) == 0.0
-    assert (float(jnp.max(jnp.abs(entries))) == 0.0) is operands_flush
-    assert bool(jnp.any(entries != 0.0)) is not operands_flush
+    if float(jnp.max(jnp.abs(entries))) == 0.0:
+        assert not bool(jnp.any(entries != 0.0))
 
     assert bool(_nonzero_magnitude_bits(entries))
     assert bool(jax.jit(_nonzero_magnitude_bits)(entries))
@@ -566,26 +564,41 @@ def test_flad_noise_component_scale_freedom() -> None:
     np.testing.assert_array_equal(safe_zero, jnp.asarray(delta))
 
 
-def test_flad_noise_component_rejects_a_destroyed_nonzero_gradient() -> None:
+def test_flad_noise_component_disposes_subnormal_gradient_by_backend_arithmetic() -> None:
     delta = jnp.asarray(np.array([1.0, -2.0, 0.5, 3.0], dtype=np.float32))
     gradient = jnp.asarray(
         np.array([2.938736e-39, -1.469368e-39, 7.34684e-40, -3.67342e-40], dtype=np.float32)
     )
     assert bool(_nonzero_magnitude_bits(gradient))
-    assert float(jnp.max(jnp.abs(gradient))) == 0.0
+    delta_f64 = np.asarray(delta, dtype=np.float64)
+    gradient_f64 = np.asarray(gradient, dtype=np.float64)
+    reference = delta_f64 - gradient_f64 * (
+        float(gradient_f64 @ delta_f64) / float(gradient_f64 @ gradient_f64)
+    )
+    eager_flushed = float(jnp.max(jnp.abs(gradient))) == 0.0
+    compiled_flushed = float(jax.jit(lambda x: jnp.max(jnp.abs(x)))(gradient)) == 0.0
 
-    for transaction in (
-        flad_noise_component_transaction,
-        jax.jit(flad_noise_component_transaction),
+    for transaction, flushed in (
+        (flad_noise_component_transaction, eager_flushed),
+        (jax.jit(flad_noise_component_transaction), compiled_flushed),
     ):
         safe, valid = transaction(delta, gradient)
-        assert not bool(valid)
-        np.testing.assert_array_equal(safe, jnp.zeros_like(delta))
+        assert bool(valid) is not flushed
+        if flushed:
+            np.testing.assert_array_equal(safe, jnp.zeros_like(delta))
+        else:
+            np.testing.assert_allclose(safe, reference, rtol=1e-5, atol=1e-5)
 
-    with pytest.raises(ValueError, match="FLAD decomposition"):
-        flad_noise_component(delta, gradient)
+    if eager_flushed:
+        with pytest.raises(ValueError, match="FLAD decomposition"):
+            flad_noise_component(delta, gradient)
+    else:
+        np.testing.assert_allclose(flad_noise_component(delta, gradient), reference, rtol=1e-5)
     compiled = jax.jit(flad_noise_component)(delta, gradient)
-    assert bool(jnp.all(jnp.isnan(compiled)))
+    if compiled_flushed:
+        assert bool(jnp.all(jnp.isnan(compiled)))
+    else:
+        np.testing.assert_allclose(compiled, reference, rtol=1e-5)
 
 
 def test_flad_noise_component_preserves_a_recoverable_subnormal_gradient() -> None:
