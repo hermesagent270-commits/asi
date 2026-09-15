@@ -434,6 +434,14 @@ def _validate_source() -> None:
             raise ValueError("prospective runtime must not contain benchmark data")
 
 
+def _require_official_source_import(module: object, relative: str) -> None:
+    """Bind imported code to the source tree already checked by _validate_source."""
+    location = getattr(module, "__file__", None)
+    expected = SOURCE_ROOT / relative
+    if type(location) is not str or Path(location).resolve() != expected.resolve():
+        raise ValueError(f"official source import differs: {relative}")
+
+
 def _validate_runtime(plan: dict[str, JsonValue]) -> None:
     if (
         platform.system() != "Linux"
@@ -466,9 +474,11 @@ def _validate_runtime(plan: dict[str, JsonValue]) -> None:
     ):
         raise ValueError("complete installed distribution set differs")
     avalanche = importlib.import_module("avalanche")
+    _require_official_source_import(avalanche, "avalanche/__init__.py")
     if cast(object, avalanche.__version__) != "0.6.0a":
         raise ValueError("imported Avalanche version differs")
     classic = importlib.import_module("avalanche.benchmarks.classic")
+    _require_official_source_import(classic, "avalanche/benchmarks/classic/__init__.py")
     for name in ("SplitMNIST", "RotatedMNIST", "SplitCIFAR100"):
         if not callable(getattr(classic, name, None)):
             raise ValueError(f"official scenario constructor is absent: {name}")

@@ -7,7 +7,7 @@ import importlib.util
 import json
 import re
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -97,6 +97,60 @@ def test_runtime_is_hash_locked_data_free_and_never_authorizes_execution() -> No
     assert "HOME=/tmp/asi-runtime-home" in dockerfile
     assert "USER 65532:65532\nRUN --network=none python verify_runtime.py" in dockerfile
     assert "MNIST" not in dockerfile and "CIFAR" not in dockerfile
+
+
+def test_runtime_rejects_shadowed_avalanche_import_even_with_pinned_source_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hashed source tree is not enough if Python imports another package."""
+    verifier = _module()
+    source_root = tmp_path / "official"
+    monkeypatch.setattr(verifier, "SOURCE_ROOT", source_root)
+    monkeypatch.setattr(verifier, "_lock_versions", lambda: {})
+    monkeypatch.setattr(
+        verifier.importlib.metadata,
+        "distributions",
+        lambda: [
+            SimpleNamespace(metadata={"Name": "pip"}, version="23.0.1"),
+            SimpleNamespace(metadata={"Name": "wheel"}, version="0.44.0"),
+        ],
+    )
+    monkeypatch.setattr(verifier.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(verifier.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(verifier.platform, "python_version", lambda: "3.10.14")
+    monkeypatch.setattr(verifier.platform, "python_implementation", lambda: "CPython")
+    monkeypatch.setattr(verifier.os, "getuid", lambda: 65_532)
+    monkeypatch.setattr(verifier.os, "getgid", lambda: 65_532)
+    monkeypatch.setenv("HOME", "/tmp/asi-runtime-home")
+    monkeypatch.setenv("XDG_CACHE_HOME", "/tmp/asi-runtime-cache")
+    monkeypatch.setenv("MPLCONFIGDIR", "/tmp/asi-matplotlib")
+    monkeypatch.setenv("PYTHON_SETUPTOOLS_VERSION", "84.0.0")
+
+    avalanche = ModuleType("avalanche")
+    avalanche.__version__ = "0.6.0a"
+    avalanche.__file__ = str(tmp_path / "shadow" / "avalanche" / "__init__.py")
+    classic = ModuleType("avalanche.benchmarks.classic")
+    classic.__file__ = str(
+        tmp_path / "shadow" / "avalanche" / "benchmarks" / "classic" / "__init__.py"
+    )
+    for name in ("SplitMNIST", "RotatedMNIST", "SplitCIFAR100"):
+        setattr(classic, name, lambda: None)
+    torch = SimpleNamespace(
+        version=SimpleNamespace(cuda=None),
+        cuda=SimpleNamespace(is_available=lambda: False),
+    )
+    modules = {"avalanche": avalanche, "avalanche.benchmarks.classic": classic, "torch": torch}
+    monkeypatch.setattr(verifier.importlib, "import_module", modules.__getitem__)
+
+    with pytest.raises(ValueError, match="official source import"):
+        verifier._validate_runtime(_plan())
+
+    avalanche.__file__ = str(source_root / "avalanche" / "__init__.py")
+    with pytest.raises(ValueError, match="classic/__init__.py"):
+        verifier._validate_runtime(_plan())
+
+    classic.__file__ = str(source_root / "avalanche" / "benchmarks" / "classic" / "__init__.py")
+    verifier._validate_runtime(_plan())
 
 
 def test_verifier_accepts_exact_plan_and_rejects_weakened_future_gates(
