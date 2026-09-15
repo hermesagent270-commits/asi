@@ -193,6 +193,7 @@ class Step12IAConfig:
 _INT32_MAX = 2**31 - 1
 _MAX_SUBTASK_SPECS = 4_096
 _MAX_PLANNING_BACKUPS_PER_STEP = 4_096
+_STEP12_PRNG_IMPLEMENTATION = "threefry2x32"
 _STEP12_CONFIG_FIELDS = frozenset(
     {
         "type",
@@ -702,7 +703,7 @@ def run_step12_smoke(
     agent = make_step12_ia_agent(cfg)
     obs_dim = cfg.observation_dim
 
-    data_key, state_key = jr.split(jr.key(seed))
+    data_key, state_key = jr.split(jr.key(seed, impl=_STEP12_PRNG_IMPLEMENTATION))
     observations = jr.normal(data_key, (steps + 1, obs_dim), dtype=jnp.float32)
     rewards = jnp.tanh(observations[1:, 0])
 
