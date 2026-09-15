@@ -24,9 +24,14 @@ from alberta_framework.streams.closed_loop import (
     RiverSwimState,
     SwitchingTwoStateState,
     _riverswim_persistent_resources,
+    _stationary_average_reward,
 )
 
 _INT32_MAX = 2**31 - 1
+
+# Correctly rounded exact rational gain of always-right under the development
+# scorecard RiverSwim protocol (n=6, p_up=0.35, p_down=0.05, r_left=0.005, r_right=1).
+SCORECARD_RIVERSWIM_ORACLE_LITERAL = 0.8571501418872549
 _INVALID_PHASE_LENGTHS = (0, -1, False, True, 1.5, None, 2**31, 10**100)
 
 
@@ -531,6 +536,53 @@ class TestRiverSwim:
             rel=1.0e-12,
             abs=1.0e-12,
         )
+
+    def test_policy_gain_is_the_correctly_rounded_exact_rational(self):
+        """The stationary gain is exact rational arithmetic, rounded once."""
+        env = RiverSwimMDP(
+            RiverSwimConfig(
+                n_states=2,
+                p_right_up=0.35,
+                p_right_down=0.05,
+                reward_left=0.0,
+                reward_right=1.0,
+            )
+        )
+        kernel = env.transition_tensor[RIGHT_ACTION]
+        rows = [[Fraction(float(value)) for value in row] for row in kernel]
+        rows = [[value / sum(row) for value in row] for row in rows]
+        # Two-state chain: stationary mass on the top state is P01 / (P01 + P10).
+        expected = rows[0][1] / (rows[0][1] + rows[1][0])
+
+        assert env.policy_average_reward([RIGHT_ACTION, RIGHT_ACTION]) == float(expected)
+
+    def test_scorecard_riverswim_oracle_is_bit_stable(self):
+        """The development-scorecard oracle must not depend on the host CPU.
+
+        This float is written into the RiverSwim environment manifest and hashed
+        into the manifest identity, so every fresh process on every machine must
+        produce exactly this value. The literal is the correctly rounded exact
+        rational gain of the always-right policy for the scorecard protocol.
+        """
+        env = RiverSwimMDP(
+            RiverSwimConfig(
+                n_states=6,
+                p_right_up=0.35,
+                p_right_down=0.05,
+                reward_left=0.005,
+                reward_right=1.0,
+            )
+        )
+
+        assert env.optimal_average_reward() == SCORECARD_RIVERSWIM_ORACLE_LITERAL
+
+    def test_stationary_gain_rejects_multichain_kernels(self):
+        """Two absorbing states have no unique stationary distribution."""
+        kernel = np.eye(2, dtype=np.float32)
+        rewards = np.array([0.0, 1.0], dtype=np.float32)
+
+        with pytest.raises(ValueError, match="unichain"):
+            _stationary_average_reward(kernel, rewards)
 
     def test_policy_gain_matches_scan_simulation(self):
         """A long scan rollout of always-right attains its analytic gain."""
