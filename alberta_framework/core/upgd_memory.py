@@ -46,6 +46,7 @@ _INT32_MAX: int = 2**31 - 1
 _UINT32_MAX: int = 2**32 - 1
 _MAX_PERSISTENT_STATE_BYTES: int = 256 * 1024 * 1024
 _FLOAT32_MIN_NORMAL: float = float(np.finfo(np.float32).tiny)
+_REQUIRED_PRNG_IMPLEMENTATION = "threefry2x32"
 _ACTUAL_INT_TYPES: tuple[type, ...] = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 _ACTUAL_REAL_TYPES: frozenset[type] = frozenset(
     (*_ACTUAL_INT_TYPES, float, np.float16, np.float32, np.float64, np.longdouble, Fraction)
@@ -156,7 +157,7 @@ def _require_typed_key(name: str, value: object) -> Array:
         raise TypeError(f"{name} must be a typed scalar threefry2x32 key") from error
     if (
         shape != ()
-        or implementation != "threefry2x32"
+        or implementation != _REQUIRED_PRNG_IMPLEMENTATION
         or words.shape != (2,)
         or words.dtype != jnp.uint32
     ):
@@ -924,7 +925,7 @@ class UPGDMemoryLearner:
     def init(self, key: Array | None = None) -> UPGDMemoryState:
         """Initialize both components and adaptive blend state."""
         if key is None:
-            key = jr.key(0)
+            key = jr.key(0, impl=_REQUIRED_PRNG_IMPLEMENTATION)
         key = _require_typed_key("key", key)
         cfg = self._config
         raw_upgd_state = self._upgd.init(cfg.feature_dim, key)

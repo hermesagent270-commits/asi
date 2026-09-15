@@ -364,6 +364,18 @@ def test_upgd_memory_historical_mapping_envelopes_are_safe_and_compatible() -> N
 
 
 @pytest.mark.parametrize("implementation", ["rbg", "unsafe_rbg"])
+def test_upgd_memory_default_init_is_independent_of_default_prng_impl(
+    implementation: str,
+) -> None:
+    learner = UPGDMemoryLearner(_base_cfg())
+
+    with jax.default_prng_impl(implementation):
+        state = learner.init()
+
+    assert str(jax.random.key_impl(state.upgd_state.key)) == "threefry2x32"
+
+
+@pytest.mark.parametrize("implementation", ["rbg", "unsafe_rbg"])
 def test_upgd_memory_requires_exact_threefry_key_resource_contract(
     implementation: str,
 ) -> None:
