@@ -7,6 +7,7 @@ from fractions import Fraction
 from typing import Any
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -1019,6 +1020,55 @@ def test_run_step12_smoke_defaults() -> None:
     assert result.augmented_obs_shape == (64, 8)  # 4 obs + 4 demons
     assert result.cerebellum_errors_shape == (64, 4)
     assert result.recommendations_shape == (64,)
+
+
+def test_step12_smoke_rng_is_independent_of_default_prng_impl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_scan = step12_module.run_step12_scan
+    captured: list[tuple[Any, ...]] = []
+
+    def _copy_leaf(value: Any) -> np.ndarray:
+        if hasattr(value, "dtype") and jax.dtypes.issubdtype(
+            value.dtype, jax.dtypes.prng_key
+        ):
+            return np.asarray(jr.key_data(value)).copy()
+        return np.asarray(value).copy()
+
+    def _capture_inputs(*args: Any, **kwargs: Any) -> Any:
+        state = args[1]
+        stomp_state = state.cortex_state.stomp_state
+        # Birth and uptime are host-clock telemetry, not seeded agent state.
+        semantic_state = state.replace(
+            cortex_state=state.cortex_state.replace(
+                stomp_state=stomp_state.replace(
+                    base_learner_state=stomp_state.base_learner_state.replace(
+                        birth_timestamp=0.0,
+                        uptime_s=0.0,
+                    )
+                )
+            )
+        )
+        values = (*jax.tree.leaves(semantic_state), *args[2:5])
+        captured.append(tuple(_copy_leaf(value) for value in values))
+        return original_scan(*args, **kwargs)
+
+    monkeypatch.setattr(step12_module, "run_step12_scan", _capture_inputs)
+    config = Step12IAConfig(
+        n_demons=1,
+        observation_dim=2,
+        n_primitive_actions=2,
+    )
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step12_smoke(config, steps=2, seed=19)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step12_smoke(config, steps=2, seed=19)
+
+    assert observed == expected
+    assert len(captured) == 2
+    for expected_value, observed_value in zip(*captured, strict=True):
+        np.testing.assert_array_equal(observed_value, expected_value)
 
 
 def test_run_step12_smoke_custom_config() -> None:
