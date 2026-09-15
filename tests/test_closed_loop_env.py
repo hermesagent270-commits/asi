@@ -10,6 +10,7 @@ import jax.random as jr
 import numpy as np
 import pytest
 
+import alberta_framework.streams.closed_loop as closed_loop
 from alberta_framework.streams import (
     LEFT_ACTION,
     PHASE_A,
@@ -583,6 +584,38 @@ class TestRiverSwim:
 
         with pytest.raises(ValueError, match="unichain"):
             _stationary_average_reward(kernel, rewards)
+
+    def test_large_valid_policy_gain_does_not_build_dense_rational_system(self, monkeypatch):
+        """A resource-valid RiverSwim policy must use bounded rational work."""
+        n_states = 64
+        env = RiverSwimMDP(RiverSwimConfig(n_states=n_states))
+
+        class BudgetedFraction(Fraction):
+            created = 0
+
+            def __new__(cls, *args, **kwargs):
+                cls.created += 1
+                if cls.created > 500:
+                    raise AssertionError("stationary gain built a dense rational system")
+                return super().__new__(cls, *args, **kwargs)
+
+        monkeypatch.setattr(closed_loop, "Fraction", BudgetedFraction)
+        gain = env.policy_average_reward([RIGHT_ACTION] * n_states)
+        assert 0.0 < gain < 1.0
+
+        BudgetedFraction.created = 0
+        random_gain = env.uniform_random_average_reward()
+        assert 0.0 < random_gain < 1.0
+
+    def test_large_birth_death_gain_matches_exact_small_solver(self):
+        """Sparse adjacent-edge balance preserves the exact 13-state gains."""
+        env = RiverSwimMDP(RiverSwimConfig(n_states=13))
+        assert env.policy_average_reward([RIGHT_ACTION] * 13) == 0.8571428562393877
+        assert env.policy_average_reward([LEFT_ACTION] * 13) == 0.004999999888241291
+        assert env.policy_average_reward(
+            [RIGHT_ACTION] * 5 + [LEFT_ACTION] + [RIGHT_ACTION] * 7
+        ) == 0.0
+        assert env.uniform_random_average_reward() == 0.0016672949103085104
 
     def test_policy_gain_matches_scan_simulation(self):
         """A long scan rollout of always-right attains its analytic gain."""

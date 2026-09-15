@@ -214,6 +214,46 @@ def _normalized_positive_float32_probability(
     return float(np.float32(normalized)), numerator, denominator
 
 
+def _birth_death_stationary_average_reward(
+    kernel: np.ndarray, rewards: np.ndarray
+) -> float:
+    """Solve a large birth-death chain by exact adjacent-edge balance.
+
+    Every RiverSwim policy and its uniform-random mixture has only adjacent
+    transitions and a positive leftward probability at each nonzero state.
+    Detailed balance gives ``d[i+1] / d[i] = P[i,i+1] / P[i+1,i]``. Keeping
+    unnormalized rational masses makes the work linear in the state count,
+    unlike a dense rational elimination of an otherwise valid large chain.
+    """
+    n = int(kernel.shape[0])
+    upward: list[Fraction] = []
+    downward: list[Fraction] = []
+    for index, row in enumerate(kernel):
+        if np.any(row[: max(index - 1, 0)]) or np.any(row[index + 2 :]):
+            raise ValueError("large exact stationary gain requires a birth-death kernel")
+        left = Fraction(float(row[index - 1])) if index > 0 else Fraction(0)
+        stay = Fraction(float(row[index]))
+        right = Fraction(float(row[index + 1])) if index + 1 < n else Fraction(0)
+        total = left + stay + right
+        if total <= 0 or min(left, stay, right) < 0:
+            raise ValueError("transition rows must carry nonnegative mass")
+        downward.append(left / total)
+        upward.append(right / total)
+
+    weights = [Fraction(1)]
+    for index in range(n - 1):
+        down = downward[index + 1]
+        if down <= 0:
+            raise ValueError("large birth-death kernel must have positive downward edges")
+        weights.append(weights[-1] * upward[index] / down)
+    total_mass = sum(weights, Fraction(0))
+    weighted_reward = sum(
+        (mass * Fraction(float(reward)) for mass, reward in zip(weights, rewards, strict=True)),
+        Fraction(0),
+    )
+    return float(weighted_reward / total_mass)
+
+
 def _stationary_average_reward(
     transition: np.ndarray,
     step_rewards: np.ndarray,
@@ -252,6 +292,9 @@ def _stationary_average_reward(
     n = int(kernel.shape[0])
     if rewards.shape != (n,):
         raise ValueError("step_rewards must have one entry per state")
+
+    if n > _MAX_EXACT_POLICY_STATES:
+        return _birth_death_stationary_average_reward(kernel, rewards)
 
     rows: list[list[Fraction]] = []
     for row in kernel:
