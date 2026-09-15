@@ -37,7 +37,6 @@ The state and config records are immutable chex dataclasses.
 from __future__ import annotations
 
 import itertools
-import math
 import operator
 from fractions import Fraction
 from numbers import Real
@@ -221,10 +220,19 @@ def _stationary_average_reward(
 ) -> float:
     """Average reward of a unichain Markov chain with per-state step rewards.
 
-    Solves ``d @ P = d, sum(d) = 1`` as a least-squares system, which handles
-    periodic chains (where power iteration would oscillate) and chains with
-    transient states. The result is only meaningful for unichain kernels,
-    which every caller in this module guarantees by construction.
+    Solves ``d @ P = d, sum(d) = 1`` exactly in rational arithmetic and rounds
+    the resulting gain to float64 once. The stored kernel entries are float32
+    values, so they convert to :class:`fractions.Fraction` without loss, and
+    the only rounding step is the final correctly rounded division. This keeps
+    the result bit-identical across hosts: a floating-point least-squares
+    solve (LAPACK ``lstsq``) rounds differently depending on the CPU's SIMD
+    kernels, and the RiverSwim oracle gain is hashed into the environment
+    manifest identity, so any host-dependent bit would break cross-machine
+    identity checks.
+
+    The balance equations sum to zero over states, so one of them is
+    redundant; it is replaced by the normalization row, which yields a
+    nonsingular system exactly when the chain is unichain.
 
     Args:
         transition: Row-stochastic kernel, shape ``(n, n)``.
@@ -232,36 +240,68 @@ def _stationary_average_reward(
 
     Returns:
         The long-run average reward ``d @ step_rewards``.
+
+    Raises:
+        ValueError: If the kernel is not square, has a row with no mass, or
+            does not induce a unichain (no unique stationary distribution).
     """
-    n = transition.shape[0]
     kernel = np.asarray(transition, dtype=np.float64)
-    row_totals = np.array([math.fsum(row) for row in kernel], dtype=np.float64)
-    kernel = kernel / row_totals[:, None]
+    rewards = np.asarray(step_rewards, dtype=np.float64)
+    if kernel.ndim != 2 or kernel.shape[0] != kernel.shape[1]:
+        raise ValueError("transition kernel must be square")
+    n = int(kernel.shape[0])
+    if rewards.shape != (n,):
+        raise ValueError("step_rewards must have one entry per state")
 
-    # Build the equivalent continuous-time generator from the categorical
-    # kernel's off-diagonal mass.  Forming ``P - I`` would subtract nearly
-    # equal float32 diagonal values and can overwhelm very small transition
-    # probabilities with rounding error.  The categorical sampler normalizes
-    # each stored row, so use those normalized off-diagonal weights directly
-    # and derive the diagonal from their sum.
-    generator = kernel.copy()
-    np.fill_diagonal(generator, 0.0)
-    np.fill_diagonal(
-        generator,
-        [-math.fsum(row) for row in generator],
+    rows: list[list[Fraction]] = []
+    for row in kernel:
+        exact_row = [Fraction(float(value)) for value in row]
+        total = sum(exact_row, Fraction(0))
+        if total <= 0 or any(value < 0 for value in exact_row):
+            raise ValueError("transition rows must carry nonnegative mass")
+        rows.append([value / total for value in exact_row])
+
+    # Unknown column d; equation j: sum_i d_i (P[i][j] - [i == j]) == 0 for
+    # j < n - 1, then sum_i d_i == 1. Augmented matrix, last column is the RHS.
+    system: list[list[Fraction]] = [
+        [rows[i][j] - (Fraction(1) if i == j else Fraction(0)) for i in range(n)]
+        + [Fraction(0)]
+        for j in range(n - 1)
+    ]
+    system.append([Fraction(1)] * n + [Fraction(1)])
+
+    for column in range(n):
+        pivot = next(
+            (index for index in range(column, n) if system[index][column] != 0),
+            None,
+        )
+        if pivot is None:
+            raise ValueError("transition kernel is not unichain")
+        system[column], system[pivot] = system[pivot], system[column]
+        pivot_row = system[column]
+        scale = pivot_row[column]
+        pivot_row[:] = [value / scale for value in pivot_row]
+        for index in range(n):
+            if index == column or system[index][column] == 0:
+                continue
+            factor = system[index][column]
+            target = system[index]
+            target[:] = [
+                value - factor * pivot_value
+                for value, pivot_value in zip(target, pivot_row, strict=True)
+            ]
+
+    distribution = [system[index][n] for index in range(n)]
+    if any(mass < 0 for mass in distribution):
+        raise ValueError("transition kernel is not unichain")
+    gain = sum(
+        (
+            mass * Fraction(float(reward))
+            for mass, reward in zip(distribution, rewards, strict=True)
+        ),
+        Fraction(0),
     )
-
-    balance = generator.T
-    equation_scales = np.max(np.abs(balance), axis=1)
-    nonzero_equations = equation_scales > 0.0
-    balance[nonzero_equations] /= equation_scales[nonzero_equations, None]
-    constraints = np.vstack([balance, np.ones((1, n))])
-    targets = np.zeros(n + 1)
-    targets[-1] = 1.0
-    distribution, *_ = np.linalg.lstsq(constraints, targets, rcond=None)
-    distribution = np.clip(distribution, 0.0, None)
-    distribution = distribution / distribution.sum()
-    return float(distribution @ step_rewards)
+    return float(gain)
 
 
 # =============================================================================
