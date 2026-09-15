@@ -258,6 +258,33 @@ def test_step5_smoke_health_gate_reports_any_refused_update(
     assert not result.finite
 
 
+def test_step5_smoke_rng_is_independent_of_default_prng_impl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_run = step5_module.run_differential_td_from_arrays
+    captured: list[tuple[Any, Any, Any]] = []
+
+    def _capture_inputs(*args: Any, **kwargs: Any) -> Any:
+        captured.append(tuple(np.asarray(value).copy() for value in args[2:5]))
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(
+        step5_module,
+        "run_differential_td_from_arrays",
+        _capture_inputs,
+    )
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step5_smoke(steps=3, feature_dim=2, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step5_smoke(steps=3, feature_dim=2, seed=17)
+
+    assert observed == expected
+    assert len(captured) == 2
+    for expected_input, observed_input in zip(*captured, strict=True):
+        np.testing.assert_array_equal(observed_input, expected_input)
+
+
 def test_step6_facade_config_roundtrip_one_step_and_smoke() -> None:
     config = Step6DifferentialSARSAConfig(
         n_actions=2,
