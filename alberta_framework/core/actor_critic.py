@@ -689,15 +689,20 @@ class ActorCriticAgent:
                 scaled = scaled * math.ldexp(1.0, -exponent - first_shift) / mantissa
             scaled = scaled - jax.lax.stop_gradient(jnp.max(scaled))
             return jax.nn.softmax(scaled)
-        if temperature <= math.ldexp(1.0, 126):
+        if temperature <= math.ldexp(1.0, 126) and math.frexp(temperature)[0] == 0.5:
+            # Exact power-of-two scaling does not expose a contraction residual.
             return jax.nn.softmax(logits / temperature)
-        # Beyond this temperature a reciprocal can flush to zero. Keep both
-        # scale factors normal and prevent XLA from combining them. Scale
-        # before centering: opposite-sign logits can overflow a difference.
-        scaled_logits: Array = jax.lax.optimization_barrier(  # type: ignore[no-untyped-call]
-            logits * math.ldexp(1.0, -126)
+        # Scale before centering so opposite-sign finite logits cannot overflow
+        # their difference. For extreme heating, splitting the divisor also
+        # prevents its reciprocal from flushing to zero.
+        factor = 0.5 if temperature <= math.ldexp(1.0, 126) else math.ldexp(1.0, -126)
+        reduced: Array = jax.lax.optimization_barrier(  # type: ignore[no-untyped-call]
+            logits * factor
         )
-        return jax.nn.softmax(scaled_logits / math.ldexp(temperature, -126))
+        centered = reduced - jax.lax.stop_gradient(jnp.max(reduced))
+        scaled = centered / (temperature * factor)
+        scaled = scaled - jax.lax.stop_gradient(jnp.max(scaled))
+        return jax.nn.softmax(scaled)
 
     @functools.partial(jax.jit, static_argnums=(0,))
     def value(self, state: ActorCriticState, observation: Array) -> Float[Array, ""]:

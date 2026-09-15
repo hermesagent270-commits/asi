@@ -119,6 +119,66 @@ def test_heating_preserves_main_policy_derivative_at_zero() -> None:
     np.testing.assert_array_equal(jax.jacrev(policy)(zero), jax.jacrev(direct)(zero))
 
 
+@pytest.mark.parametrize(
+    ("logits", "temperature"),
+    [
+        ([7.5e9, 0.0], 3.0),
+        ([1e11, 0.0], 7.0),
+        ([-2e38, 2e38], 3e38),
+        ([1.0, -2.0, 0.5], 3.0),
+    ],
+)
+def test_non_power_of_two_heating_matches_eager_policy(
+    logits: list[float], temperature: float
+) -> None:
+    """Unbatched heating must match a finite reference, not fused NaNs."""
+    agent = ActorCriticAgent(ActorCriticConfig(n_actions=len(logits), temperature=temperature))
+    state = agent.init(1, jr.key(222)).replace(actor_bias=jnp.asarray(logits, dtype=jnp.float32))
+    observation = jnp.zeros(1, dtype=jnp.float32)
+    if temperature > 2.0**126:
+        # Float32 eager division can flush the huge-temperature reciprocal to
+        # zero; use a float64 reference for this split-scaling contract.
+        scaled = np.asarray(state.actor_bias, dtype=np.float64) / temperature
+        shifted = np.exp(scaled - np.max(scaled))
+        expected = shifted / np.sum(shifted)
+    else:
+        with jax.disable_jit(True):
+            expected = jax.nn.softmax(state.actor_bias / temperature)
+
+    actual = agent.policy(state, observation)
+    assert bool(jnp.all(jnp.isfinite(actual)))
+    np.testing.assert_allclose(actual, expected, rtol=2e-6, atol=0.0)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_non_power_of_two_heating_reached_by_learning_remains_finite(seed: int) -> None:
+    """A finite unit-reward update must not poison the next heated policy."""
+    agent = ActorCriticAgent(
+        ActorCriticConfig(
+            n_actions=2,
+            temperature=3.0,
+            actor_step_size=0.1,
+            critic_step_size=0.1,
+            actor_lamda=0.0,
+            critic_lamda=0.0,
+        )
+    )
+    observation = jnp.array([1e6], dtype=jnp.float32)
+    zero_observation = jnp.zeros(1, dtype=jnp.float32)
+    state, _, _ = agent.start(agent.init(1, jr.key(seed)), observation)
+    first = agent.update(state, jnp.float32(1.0), zero_observation)
+    assert bool(first.update_applied)
+
+    logits = first.state.actor_weights @ observation + first.state.actor_bias
+    assert bool(jnp.all(jnp.isfinite(logits)))
+    assert bool(jnp.all(jnp.isfinite(logits / agent.config.temperature)))
+    policy = agent.policy(first.state, observation)
+    assert bool(jnp.all(jnp.isfinite(policy)))
+    assert int(jnp.argmax(policy)) == int(jnp.argmax(logits))
+    second = agent.update(first.state, jnp.float32(0.0), observation)
+    assert bool(second.update_applied)
+
+
 def test_cooling_overflow_reached_by_learning_keeps_next_transition() -> None:
     agent = ActorCriticAgent(
         ActorCriticConfig(
