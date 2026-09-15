@@ -53,6 +53,7 @@ from alberta_framework.steps._float32_validation import (
 from alberta_framework.steps._smoke_record_validation import require_step_shape
 
 _STEP8_SMOKE_BUDGET = ScanBudget("Step 8 smoke", maximum_steps=10_000)
+_STEP8_PRNG_IMPLEMENTATION = "threefry2x32"
 
 
 @dataclass(frozen=True)
@@ -465,7 +466,7 @@ def run_step8_smoke(
         raise ValueError("run_step8_smoke currently expects discrete actions")
 
     model = make_step8_world_model(cfg)
-    key = jr.key(seed)
+    key = jr.key(seed, impl=_STEP8_PRNG_IMPLEMENTATION)
     data_key, state_key = jr.split(key)
     observations = jr.normal(data_key, (steps, cfg.observation_dim), dtype=jnp.float32)
     actions = jnp.arange(steps, dtype=jnp.int32) % cfg.n_actions

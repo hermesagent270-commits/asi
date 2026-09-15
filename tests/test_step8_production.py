@@ -13,11 +13,13 @@ from fractions import Fraction
 from typing import Any, cast
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
 
+from alberta_framework.steps import step8 as step8_module
 from alberta_framework.steps.step8 import (
     Step8SmokeResult,
     Step8WorldModelConfig,
@@ -112,6 +114,48 @@ def test_step8_config_roundtrip_and_smoke() -> None:
     assert smoke.finite
     assert smoke.reward_predictions_shape == (8,)
     assert smoke.next_observation_predictions_shape == (8, 3)
+
+
+def test_step8_smoke_rng_is_independent_of_default_prng_impl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_run = step8_module.run_world_model_learning_loop
+    captured: list[tuple[Any, ...]] = []
+
+    def _capture_inputs(*args: Any, **kwargs: Any) -> Any:
+        state = args[1]
+        # Birth and uptime are host-clock telemetry, not seeded model state.
+        semantic_state = state.replace(
+            learner_state=state.learner_state.replace(
+                birth_timestamp=0.0,
+                uptime_s=0.0,
+            )
+        )
+        values = (*jax.tree.leaves(semantic_state), *args[2:6])
+        captured.append(tuple(np.asarray(value).copy() for value in values))
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(
+        step8_module,
+        "run_world_model_learning_loop",
+        _capture_inputs,
+    )
+    config = Step8WorldModelConfig(
+        observation_dim=2,
+        n_actions=2,
+        hidden_sizes=(),
+        sparsity=0.0,
+    )
+
+    with jax.default_prng_impl("threefry2x32"):
+        expected = run_step8_smoke(config, steps=3, seed=17)
+    with jax.default_prng_impl("rbg"):
+        observed = run_step8_smoke(config, steps=3, seed=17)
+
+    assert observed == expected
+    assert len(captured) == 2
+    for expected_value, observed_value in zip(*captured, strict=True):
+        np.testing.assert_array_equal(observed_value, expected_value)
 
 
 def test_step8_one_step_and_scan_facade() -> None:
@@ -499,5 +543,4 @@ def test_step8_from_dict_schema_validation() -> None:
     bad_hidden["hidden_sizes"] = (64,)
     with pytest.raises(ValueError, match="hidden_sizes must be an exact list"):
         Step8WorldModelConfig.from_dict(bad_hidden)
-
 
