@@ -391,7 +391,10 @@ def _run_arm(
                 prediction = int(np.argmin(distances)) if np.any(counts > 0) else 0
                 queries += 1
             else:
-                prediction = int(np.argmax(x @ weights + bias))
+                logits = x @ weights + bias
+                if not np.all(np.isfinite(logits)):
+                    raise ValueError("nonfinite linear policy logits")
+                prediction = int(np.argmax(logits))
                 queries += 1
             hit = int(prediction == label)
             correct += hit
@@ -415,10 +418,16 @@ def _run_arm(
                     linear_update(x, label)
             elif arm_id == "running_centroid":
                 sums[label] += x
+                if not np.all(np.isfinite(sums[label])):
+                    raise ValueError("nonfinite centroid state")
                 counts[label] += 1
                 updates += 1
             real_seen += 1
         per_task.append(task_correct / task.inputs.shape[0])
+    if arm_id != "running_centroid" and (
+        not np.all(np.isfinite(weights)) or not np.all(np.isfinite(bias))
+    ):
+        raise ValueError("nonfinite linear numeric state")
     elapsed = time.perf_counter_ns() - start
     steps = sum(task.inputs.shape[0] for task in tasks)
     bytes_per_example = input_dim * 4 + 4

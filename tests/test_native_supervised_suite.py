@@ -11,6 +11,8 @@ from alberta_framework.benchmarks.native_supervised_suite import (
     ARM_IDS,
     BENCHMARK_IDS,
     FROZEN_SEEDS,
+    TaskBatch,
+    _run_arm,
     build_task_stream,
     catalog_payload,
     main,
@@ -180,3 +182,74 @@ def test_catalog_cli_is_metadata_only(capsys: pytest.CaptureFixture[str]) -> Non
     payload = json.loads(capsys.readouterr().out)
     assert payload == catalog_payload()
     assert payload["avalanche_revision"].endswith("eb075be393e1f458b2c352514ff6c17b5a2c0f4e")
+
+
+def test_finite_inputs_cannot_certify_overflowed_sgd_arm() -> None:
+    tasks = (
+        TaskBatch(
+            0,
+            np.asarray([[1e21], [2e21]], dtype=np.float32),
+            np.asarray([0, 1], dtype=np.int32),
+        ),
+    )
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="nonfinite linear"):
+            _run_arm(tasks, n_classes=2, capacity=1, arm_id="online_sgd")
+
+
+def test_overflowed_centroid_state_is_rejected_before_certification() -> None:
+    tasks = (
+        TaskBatch(
+            0,
+            np.asarray([[3e38], [3e38], [1e38]], dtype=np.float32),
+            np.asarray([0, 0, 1], dtype=np.int32),
+        ),
+    )
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="nonfinite centroid"):
+            _run_arm(tasks, n_classes=2, capacity=1, arm_id="running_centroid")
+
+
+def test_final_centroid_update_cannot_leave_nonfinite_state() -> None:
+    tasks = (
+        TaskBatch(
+            0,
+            np.asarray([[3e38], [3e38]], dtype=np.float32),
+            np.asarray([0, 0], dtype=np.int32),
+        ),
+    )
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="nonfinite centroid"):
+            _run_arm(tasks, n_classes=2, capacity=1, arm_id="running_centroid")
+
+
+def test_public_suite_rejects_numeric_failure_instead_of_validating_accuracy() -> None:
+    labels = np.repeat(np.arange(10, dtype=np.int32), 3)
+    images = (labels.astype(np.float32) * np.float32(1e20))[:, None, None]
+    with np.errstate(over="ignore", invalid="ignore"):
+        with pytest.raises(ValueError, match="nonfinite linear"):
+            run_native_suite(
+                "split_mnist", images, labels, seed=FROZEN_SEEDS[0], examples_per_task=1
+            )
+
+
+def test_large_but_finite_linear_and_centroid_paths_remain_accepted() -> None:
+    linear = (
+        TaskBatch(
+            0,
+            np.asarray([[1e5], [2e5]], dtype=np.float32),
+            np.asarray([0, 1], dtype=np.int32),
+        ),
+    )
+    centroid = (
+        TaskBatch(
+            0,
+            np.asarray([[3e19], [3e19]], dtype=np.float32),
+            np.asarray([0, 0], dtype=np.int32),
+        ),
+    )
+    assert _run_arm(linear, n_classes=2, capacity=1, arm_id="online_sgd").receipt.data_steps == 2
+    assert (
+        _run_arm(centroid, n_classes=2, capacity=1, arm_id="running_centroid")
+        .receipt.data_steps == 2
+    )
