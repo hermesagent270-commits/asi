@@ -110,7 +110,15 @@ local same-runner development ranking, not a paper-level SOTA claim.
   `6fc2af34783159f5dda50c6915dda32c2d443604`. The registered `cpr_*` IPMNIST
   family is a documented supervised protocol port with matched hard-reset,
   L2-Init, utility-free, and mechanism-off controls—not a source reproduction
-  or an IPMNIST result. C-CHAIN remains a candidate for a causal ablation.
+  or an IPMNIST result. Periodic CPR, hard-reset, and utility-free pulls now
+  use the [pinned source's](https://github.com/LucMc/continual-learning/blob/6fc2af34783159f5dda50c6915dda32c2d443604/continual_learning/optim/cpr.py)
+  positive pre-update clock: frequency F first acts
+  on update F+1, then every F updates. The port deliberately keeps normalized
+  SGD, per-parameter EMA utility, retained initialization, and all-parameter
+  pulls; L2-Init remains continuous and mechanism-off never pulls. The v2
+  development receipt records these choices and rejects the old timing contract.
+  A separately frozen, authorized, retained, dataset-replayed campaign remains
+  open under #1563. C-CHAIN remains a candidate for a causal ablation.
 - [Experience Replay Addresses Loss of Plasticity
   (2025)](https://arxiv.org/abs/2503.20018) argues that replay processed by a
   Transformer can preserve plasticity through in-context learning. ASI now
