@@ -99,18 +99,24 @@ def test_runtime_is_hash_locked_data_free_and_never_authorizes_execution() -> No
     assert "MNIST" not in dockerfile and "CIFAR" not in dockerfile
 
 
-def test_runtime_rejects_shadowed_avalanche_import_even_with_pinned_source_present(
+def test_runtime_rejects_shadowed_imports_even_with_locked_source_and_distribution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A hashed source tree is not enough if Python imports another package."""
+    """Locked source and distribution bytes do not prove Python chose their code."""
     verifier = _module()
     source_root = tmp_path / "official"
     monkeypatch.setattr(verifier, "SOURCE_ROOT", source_root)
-    monkeypatch.setattr(verifier, "_lock_versions", lambda: {})
+    monkeypatch.setattr(verifier, "_lock_versions", lambda: {"torch": "2.2.2+cpu"})
+    torch_distribution = SimpleNamespace(
+        metadata={"Name": "torch"},
+        version="2.2.2+cpu",
+        locate_file=lambda relative: tmp_path / "installed" / relative,
+    )
     monkeypatch.setattr(
         verifier.importlib.metadata,
         "distributions",
         lambda: [
+            torch_distribution,
             SimpleNamespace(metadata={"Name": "pip"}, version="23.0.1"),
             SimpleNamespace(metadata={"Name": "wheel"}, version="0.44.0"),
         ],
@@ -135,21 +141,51 @@ def test_runtime_rejects_shadowed_avalanche_import_even_with_pinned_source_prese
     )
     for name in ("SplitMNIST", "RotatedMNIST", "SplitCIFAR100"):
         setattr(classic, name, lambda: None)
-    torch = SimpleNamespace(
-        version=SimpleNamespace(cuda=None),
-        cuda=SimpleNamespace(is_available=lambda: False),
-    )
+    torch = ModuleType("torch")
+    locked_torch_file = str(torch_distribution.locate_file("torch/__init__.py"))
+    torch.__file__ = locked_torch_file
+    torch.version = SimpleNamespace(cuda=None)
+    torch.cuda = SimpleNamespace(is_available=lambda: False)
     modules = {"avalanche": avalanche, "avalanche.benchmarks.classic": classic, "torch": torch}
-    monkeypatch.setattr(verifier.importlib, "import_module", modules.__getitem__)
+    imported: list[str] = []
+
+    def import_module(name: str) -> object:
+        imported.append(name)
+        return modules[name]
+
+    spec_origins = {
+        "avalanche": lambda: avalanche.__file__,
+        "torch": lambda: torch_spec_origin,
+    }
+    torch_spec_origin = locked_torch_file
+    monkeypatch.setattr(verifier.importlib, "import_module", import_module)
+    monkeypatch.setattr(
+        verifier.importlib.util,
+        "find_spec",
+        lambda name: SimpleNamespace(origin=spec_origins[name]()),
+    )
 
     with pytest.raises(ValueError, match="official source import"):
         verifier._validate_runtime(_plan())
+    assert imported == []
 
     avalanche.__file__ = str(source_root / "avalanche" / "__init__.py")
     with pytest.raises(ValueError, match="classic/__init__.py"):
         verifier._validate_runtime(_plan())
 
     classic.__file__ = str(source_root / "avalanche" / "benchmarks" / "classic" / "__init__.py")
+    torch.__file__ = str(tmp_path / "shadow" / "torch" / "__init__.py")
+    torch_spec_origin = torch.__file__
+    imported.clear()
+    with pytest.raises(ValueError, match="locked distribution import differs: torch"):
+        verifier._validate_runtime(_plan())
+    assert imported == []
+
+    torch_spec_origin = locked_torch_file
+    with pytest.raises(ValueError, match="locked distribution import differs: torch"):
+        verifier._validate_runtime(_plan())
+
+    torch.__file__ = locked_torch_file
     verifier._validate_runtime(_plan())
 
 

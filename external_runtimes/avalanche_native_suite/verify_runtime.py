@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 import math
 import os
@@ -442,6 +443,24 @@ def _require_official_source_import(module: object, relative: str) -> None:
         raise ValueError(f"official source import differs: {relative}")
 
 
+def _require_import_target(name: str, expected: Path, error: str) -> None:
+    """Reject a shadow target before importing its code."""
+    spec = importlib.util.find_spec(name)
+    origin = getattr(spec, "origin", None)
+    if type(origin) is not str or Path(origin).resolve() != expected.resolve():
+        raise ValueError(error)
+
+
+def _require_locked_torch_import(
+    module: object, distribution: importlib.metadata.Distribution
+) -> None:
+    """Bind imported Torch to the distribution already checked against the lock."""
+    location = getattr(module, "__file__", None)
+    expected = Path(distribution.locate_file("torch/__init__.py"))
+    if type(location) is not str or Path(location).resolve() != expected.resolve():
+        raise ValueError("locked distribution import differs: torch")
+
+
 def _validate_runtime(plan: dict[str, JsonValue]) -> None:
     if (
         platform.system() != "Linux"
@@ -462,17 +481,28 @@ def _validate_runtime(plan: dict[str, JsonValue]) -> None:
         "wheel": "0.44.0",
     }
     distributions = list(importlib.metadata.distributions())
-    installed_distributions = {
-        re.sub(r"[-_.]+", "-", str(distribution.metadata["Name"])).lower(): (
-            distribution.version
-        )
+    distribution_by_name = {
+        re.sub(r"[-_.]+", "-", str(distribution.metadata["Name"])).lower(): distribution
         for distribution in distributions
+    }
+    installed_distributions = {
+        name: distribution.version for name, distribution in distribution_by_name.items()
     }
     if (
         len(installed_distributions) != len(distributions)
         or installed_distributions != expected_distributions
     ):
         raise ValueError("complete installed distribution set differs")
+    torch_distribution = distribution_by_name["torch"]
+    torch_source = Path(torch_distribution.locate_file("torch/__init__.py"))
+    _require_import_target(
+        "avalanche",
+        SOURCE_ROOT / "avalanche/__init__.py",
+        "official source import differs: avalanche/__init__.py",
+    )
+    _require_import_target(
+        "torch", torch_source, "locked distribution import differs: torch"
+    )
     avalanche = importlib.import_module("avalanche")
     _require_official_source_import(avalanche, "avalanche/__init__.py")
     if cast(object, avalanche.__version__) != "0.6.0a":
@@ -483,6 +513,7 @@ def _validate_runtime(plan: dict[str, JsonValue]) -> None:
         if not callable(getattr(classic, name, None)):
             raise ValueError(f"official scenario constructor is absent: {name}")
     torch = importlib.import_module("torch")
+    _require_locked_torch_import(torch, torch_distribution)
     if cast(object, torch.version.cuda) is not None or bool(torch.cuda.is_available()):
         raise ValueError("prospective native-suite runtime must remain CPU-only")
     runtime = cast("dict[str, JsonValue]", plan["runtime"])
