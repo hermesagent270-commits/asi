@@ -609,6 +609,7 @@ class TestRiverSwim:
 
     def test_large_birth_death_gain_matches_exact_small_solver(self):
         """Sparse adjacent-edge balance preserves the exact 13-state gains."""
+        assert closed_loop._MAX_EXACT_POLICY_STATES < 13
         env = RiverSwimMDP(RiverSwimConfig(n_states=13))
         assert env.policy_average_reward([RIGHT_ACTION] * 13) == 0.8571428562393877
         assert env.policy_average_reward([LEFT_ACTION] * 13) == 0.004999999888241291
@@ -616,6 +617,27 @@ class TestRiverSwim:
             [RIGHT_ACTION] * 5 + [LEFT_ACTION] + [RIGHT_ACTION] * 7
         ) == 0.0
         assert env.uniform_random_average_reward() == 0.0016672949103085104
+
+    @pytest.mark.parametrize(
+        ("invalid_kernel", "message"),
+        [
+            ("off_band", "birth-death kernel"),
+            ("empty_row", "nonnegative mass"),
+            ("no_downward_edge", "positive downward edges"),
+        ],
+    )
+    def test_large_stationary_gain_rejects_invalid_birth_death_kernels(
+        self, invalid_kernel: str, message: str
+    ) -> None:
+        """A large invalid kernel cannot produce a certified stationary gain."""
+        kernel = np.eye(13, dtype=np.float32)
+        if invalid_kernel == "off_band":
+            kernel[0, 0] = 0.9
+            kernel[0, 2] = 0.1
+        elif invalid_kernel == "empty_row":
+            kernel[3] = 0.0
+        with pytest.raises(ValueError, match=message):
+            _stationary_average_reward(kernel, np.zeros(13, dtype=np.float32))
 
     def test_policy_gain_matches_scan_simulation(self):
         """A long scan rollout of always-right attains its analytic gain."""
