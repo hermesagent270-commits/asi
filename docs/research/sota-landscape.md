@@ -117,8 +117,12 @@ local same-runner development ranking, not a paper-level SOTA claim.
   SGD, per-parameter EMA utility, retained initialization, and all-parameter
   pulls; L2-Init remains continuous and mechanism-off never pulls. The v2
   development receipt records these choices and rejects the old timing contract.
-  A separately frozen, authorized, retained, dataset-replayed campaign remains
-  open under #1563. C-CHAIN remains a candidate for a causal ablation.
+  The [consolidated campaign contract](../runbooks/calibrated-partial-reset-matched-development.md)
+  consumes this family, fixes a utility-versus-off primary rule, binds source,
+  canonical data and runtime identities, and adds reservation-first immutable
+  publication with strict dataset replay. Both execution gates remain hard
+  false. Authorization, execution, retention, and independent audit remain open
+  under #1563. C-CHAIN remains a candidate for a causal ablation.
 - [Experience Replay Addresses Loss of Plasticity
   (2025)](https://arxiv.org/abs/2503.20018) argues that replay processed by a
   Transformer can preserve plasticity through in-context learning. ASI now

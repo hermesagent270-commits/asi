@@ -426,6 +426,7 @@ consumed seeds, or modify immutable `outputs/` records. See
 
 - [Foragax open development screen](docs/runbooks/foragax-open-screen.md)
 - [Maintained IPMNIST campaign tools](docs/runbooks/ipmnist-maintained-tools.md)
+- [Consolidated CPR development contract](docs/runbooks/calibrated-partial-reset-matched-development.md) — execution remains disabled
 
 ### Research and historical audits
 
