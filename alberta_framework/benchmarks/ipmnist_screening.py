@@ -336,7 +336,7 @@ VALIDATION_SCHEMA = "alberta.ipmnist_screening.proxy_validation.v2"
 SOURCE_PROVENANCE_SCHEMA = "alberta.ipmnist_screening.source_provenance.v1"
 DATASET_PROVENANCE_SCHEMA = "alberta.ipmnist_screening.dataset_provenance.v1"
 RUNTIME_SCHEMA = "alberta.ipmnist_screening.runtime.v1"
-PARTIAL_RESET_RECORD_SCHEMA = "asi.ipmnist.calibrated_partial_reset.development.v1"
+PARTIAL_RESET_RECORD_SCHEMA = "asi.ipmnist.calibrated_partial_reset.development.v2"
 CPR_PAPER_REVISION = "arXiv:2607.24996v1"
 CPR_OFFICIAL_CODE_REVISION = (
     "LucMc/continual-learning@6fc2af34783159f5dda50c6915dda32c2d443604"
@@ -6580,7 +6580,9 @@ def _make_cpr_ipmnist_learner(
     (a finer-grained utility) because the screening learner's state is
     parameter-keyed.  It retains the paper's layer/tensor mean normalization,
     Eq. 6 sigmoid shape (kappa=16), periodic pull, and reset-to-retained-init
-    operator.  This protocol difference is bound in the result receipt.
+    operator. Periodic modes use the pinned official pre-update clock:
+    frequency F first resets on update F+1, after F completed updates, then
+    every F updates. These protocol choices are bound in the result receipt.
     """
     mode_code = int(hp["mode_code"])
     if mode_code not in range(5):
@@ -6627,7 +6629,7 @@ def _make_cpr_ipmnist_learner(
         sgd_params = {
             name: params[name] - step_size * grads[name] for name in params
         }
-        at_reset = jnp.equal(jnp.mod(new_step, reset_frequency), 0)
+        at_reset = (state.step > 0) & jnp.equal(jnp.mod(state.step, reset_frequency), 0)
         new_params: dict[str, Array] = {}
         for name in params:
             mean_utility = jnp.mean(utility[name])
@@ -9962,7 +9964,9 @@ def partial_reset_development_record(result: ScreeningRunResult) -> dict[str, An
                 "batch-size-one IPMNIST; per-parameter rather than per-neuron gradient "
                 "utility; retained initialization rather than fresh keyed draws; pulls all "
                 "parameters rather than hidden incoming weights plus outgoing decay; no "
-                "task-boundary information"
+                "task-boundary information; periodic reset and utility recentering use the "
+                "positive pre-update clock, first acting on update reset_frequency+1; "
+                "L2-init acts every update and mechanism-off never pulls"
             ),
         },
         "arm": result.config_name,
