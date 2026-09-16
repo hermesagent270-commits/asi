@@ -375,6 +375,17 @@ postmortem.
     This append-only review replay preserves all twelve original arm records;
     the original `development_result_pr2257.v2.json` remains as historical provenance.
 
+17. **The registered bounded-growth and bounded-elastic IPMNIST adaptations do not beat
+    fixed-capacity CBP.** Across five fresh paired development seeds, fixed CBP measured mean
+    online accuracy `0.751540`. Bounded growth measured `0.728955` (paired delta `-0.022585`),
+    and bounded elastic measured `0.728820` (paired delta `-0.022720`); all ten candidate-control
+    deltas were negative. Both candidates met the shared peak persistent-memory budget, and the
+    elastic arm ended at half the first-layer width, but neither passed the preregistered accuracy
+    sign rule. This permanently nonpromoting result rejects only the registered fixed-shape
+    eight-task adaptation, not the paper's dynamically deep method. Do not rerun the consumed
+    roster. Record:
+    [`bounded_elastic_matched_development/`](../../outputs/bounded_elastic_matched_development/).
+
 ## EMNIST transfer results
 
 1. **Bare input conditioning does not solve label permutation.**

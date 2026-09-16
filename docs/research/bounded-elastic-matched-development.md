@@ -51,4 +51,9 @@ The read-only catalog is available without loading MNIST:
 .venv/bin/python -m alberta_framework.evaluation.bounded_elastic_matched_runner --catalog
 ```
 
-No campaign run or result artifact is included with this plan.
+The one-time development transaction completed at measured source commit `8f6cea17`. Both
+registered candidates lost to fixed-capacity CBP on all five paired seeds, so the frozen sign rule
+rejects this configuration. The immutable result, independent audit, exact statistics, and scope
+limits are retained in
+[`outputs/bounded_elastic_matched_development/`](../../outputs/bounded_elastic_matched_development/).
+The execution transition is closed again; this consumed roster must not be rerun.
