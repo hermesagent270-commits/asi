@@ -370,10 +370,13 @@ postmortem.
     control but regressed by 2 rewards against the stronger fixed control on
     every seed. This synthetic, short-horizon, permanently nonpromoting result
     establishes no TeLAPA, transfer, or paper-parity claim and does not justify
-    advancing the archive mechanism. Record:
-    [`development_result_pr2257_review.v2.json`](../../outputs/telapa_qualification/development_result_pr2257_review.v2.json).
-    This append-only review replay preserves all twelve original arm records;
-    the original `development_result_pr2257.v2.json` remains as historical provenance.
+    advancing the archive mechanism. The append-only current-source replay on
+    main `f3d32c45` under CPython 3.12.3 reproduces all twelve arm records and
+    passes the strict source/runtime/dependency validator. Current record:
+    [`development_result_main_f3d32c45_py3123_replay.v2.json`](../../outputs/telapa_qualification/development_result_main_f3d32c45_py3123_replay.v2.json).
+    The earlier `development_result_pr2257.v2.json` and
+    `development_result_pr2257_review.v2.json` files remain as historical
+    provenance and correctly fail the current runtime-identity gate.
 
 ## EMNIST transfer results
 
