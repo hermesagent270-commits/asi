@@ -1222,8 +1222,8 @@ def load_mnist_train(data_home: Path | None = None) -> tuple[np.ndarray, np.ndar
         "mnist_784", version=1, as_frame=False, data_home=str(home), n_retries=3, delay=2.0
     )
     x = np.asarray(raw.data, dtype=np.float32)[:60_000]
-    y = np.asarray(raw.target, dtype=np.int32)[:60_000]
-    x = (x / 255.0 - 0.5) / 0.5
+    y = np.ascontiguousarray(np.asarray(raw.target, dtype=np.int32)[:60_000])
+    x = np.ascontiguousarray((x / 255.0 - 0.5) / 0.5)
     return x, y
 
 

@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
+import sklearn.datasets
 
 import alberta_framework.benchmarks.upgd_ipmnist as upgd_ipmnist
 from alberta_framework.benchmarks.upgd_ipmnist import (
@@ -42,6 +43,28 @@ from alberta_framework.benchmarks.upgd_ipmnist import (
 
 TINY = IPMNISTConfig(n_tasks=2, task_length=200, input_dim=16, hidden1=32, hidden2=16)
 N_TRAIN = 300
+
+
+def test_load_mnist_train_materializes_c_contiguous_arrays(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    raw_x = np.asfortranarray(
+        np.asarray([[0.0, 255.0], [64.0, 128.0], [255.0, 0.0]], dtype=np.float64)
+    )
+    raw_y = np.asarray(["0", "1", "2"])
+
+    class Dataset:
+        data = raw_x
+        target = raw_y
+
+    monkeypatch.setattr(sklearn.datasets, "fetch_openml", lambda *args, **kwargs: Dataset())
+
+    x, y = upgd_ipmnist.load_mnist_train(tmp_path)
+
+    assert x.flags.c_contiguous
+    assert y.flags.c_contiguous
+    np.testing.assert_allclose(x, (raw_x.astype(np.float32) / 255.0 - 0.5) / 0.5)
+    np.testing.assert_array_equal(y, np.asarray([0, 1, 2], dtype=np.int32))
 
 
 class TestAtomicWriteNew:
