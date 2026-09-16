@@ -375,6 +375,20 @@ postmortem.
     This append-only review replay preserves all twelve original arm records;
     the original `development_result_pr2257.v2.json` remains as historical provenance.
 
+16. **The supervised Intentional Updates extension loses to its mechanism-off
+    control at the 60-task IPMNIST horizon.** Across five fresh development
+    seeds, full Intentional Updates measured `0.760557 ± 0.000882` mean online
+    accuracy (mean ± sample standard deviation), versus
+    `0.791919 ± 0.001805` for the exact fixed-step reduction. The paired delta
+    was `-0.031362 ± 0.001296`, with all five seeds negative, decisively failing
+    the frozen `> +0.005` all-seeds-positive gate. No-diagonal remained
+    negative by `-0.023564`; no-clipping matched the full arm's loss; head-only
+    regressed by `-0.159731`. This rejects the registered supervised extension
+    at its frozen hyperparameters and horizon, not the publication's RL method.
+    Do not retry this configuration without a causal hypothesis that addresses
+    the gap to fixed normalized SGD. Record:
+    [`intentional_updates_r1/`](../../outputs/ipmnist_screening/intentional_updates_r1/).
+
 ## EMNIST transfer results
 
 1. **Bare input conditioning does not solve label permutation.**

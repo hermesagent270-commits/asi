@@ -1,0 +1,606 @@
+{
+ "confirmation_threshold": 0.005,
+ "control_name": "intentional_updates_off",
+ "created_unix": 1789534949.7915034,
+ "dataset_provenance": {
+  "materialization": "alberta.ipmnist.float32-neg1-pos1-int32-labels.v1",
+  "schema": "alberta.ipmnist_screening.dataset_provenance.v1",
+  "source": {
+   "name": "mnist_784",
+   "provider": "openml",
+   "row_start": 0,
+   "row_stop_exclusive": 60000,
+   "version": 1
+  },
+  "x": {
+   "dtype": "<f4",
+   "sha256": "b8078cd833f53d89828a5e28d728517be9add34076f13fe973399f1f16381313",
+   "shape": [
+    60000,
+    784
+   ]
+  },
+  "y": {
+   "dtype": "<i4",
+   "sha256": "4f1dd9551f104f8153409e0add59f0a71568f7bad5a5f8e2274480c186fe219a",
+   "shape": [
+    60000
+   ]
+  }
+ },
+ "environment": {
+  "jax": {
+   "backend": "cpu",
+   "config": {
+    "jax_default_matmul_precision": null,
+    "jax_default_prng_impl": "threefry2x32",
+    "jax_disable_jit": false,
+    "jax_enable_x64": false,
+    "jax_numpy_dtype_promotion": "standard",
+    "jax_numpy_rank_promotion": "allow",
+    "jax_random_seed_offset": 0,
+    "jax_threefry_partitionable": true
+   },
+   "devices": [
+    {
+     "device_kind": "cpu",
+     "id": 0,
+     "platform": "cpu",
+     "process_index": 0
+    }
+   ]
+  },
+  "packages": {
+   "chex": "0.1.92",
+   "jax": "0.11.0",
+   "jaxlib": "0.11.0",
+   "numpy": "2.5.1",
+   "scikit-learn": "1.9.0"
+  },
+  "platform": {
+   "machine": "x86_64",
+   "release": "6.8.0-137-generic",
+   "system": "Linux"
+  },
+  "process_environment": {
+   "CUDA_VISIBLE_DEVICES": null,
+   "JAX_DEFAULT_MATMUL_PRECISION": null,
+   "JAX_ENABLE_X64": null,
+   "JAX_PLATFORMS": null,
+   "JAX_PLATFORM_NAME": null,
+   "OMP_NUM_THREADS": "1",
+   "XLA_FLAGS": null
+  },
+  "python": {
+   "implementation": "CPython",
+   "version": "3.12.3"
+  },
+  "schema": "alberta.ipmnist_screening.runtime.v1"
+ },
+ "evidence_policy": {
+  "development_only": true,
+  "evidence_class": "development_screening_diagnostic",
+  "scientific_promotion_allowed": false
+ },
+ "n_shards": 25,
+ "noise_mode": "step",
+ "noise_pool_steps": null,
+ "protocol_config": {
+  "hidden1": 300,
+  "hidden2": 150,
+  "input_dim": 784,
+  "n_classes": 10,
+  "n_tasks": 60,
+  "task_length": 5000
+ },
+ "results": [
+  {
+   "average_online_accuracy_mean": 0.7919193149333335,
+   "average_online_accuracy_stderr": 0.0008071244471249323,
+   "average_plasticity_mean": 0.3818504505,
+   "base_learner": "upgd_w",
+   "config_name": "intentional_updates_off",
+   "hyperparameters": {
+    "beta2": 0.999,
+    "beta_clip": 0.9998,
+    "clip_mult": 20.0,
+    "fixed_step_size": 0.01,
+    "intended_fraction": 0.5,
+    "intentional_enabled": 0.0,
+    "norm_decay": 0.99,
+    "norm_epsilon": 1e-08,
+    "optimizer_epsilon": 1e-08,
+    "update_features": 1.0,
+    "use_adaptive_clip": 1.0,
+    "use_diagonal_normalization": 1.0,
+    "weight_decay": 0.0
+   },
+   "late_window_slope_mean": -0.0006135712428571424,
+   "n_seeds": 5,
+   "per_seed_average_online_accuracy": [
+    0.79005,
+    0.793757,
+    0.793817,
+    0.790347,
+    0.791627
+   ],
+   "per_seed_late_window_slope": [
+    0.00039286,
+    -0.00218143,
+    -0.00087714,
+    0.00054714,
+    -0.00094929
+   ],
+   "seeds": [
+    1561000,
+    1561001,
+    1561002,
+    1561003,
+    1561004
+   ],
+   "wall_clock_seconds_total": 320.05
+  },
+  {
+   "average_online_accuracy_mean": 0.768355314,
+   "average_online_accuracy_stderr": 0.0003279933917027882,
+   "average_plasticity_mean": 0.42765032236666667,
+   "base_learner": "upgd_w",
+   "config_name": "intentional_updates_no_diag",
+   "hyperparameters": {
+    "beta2": 0.999,
+    "beta_clip": 0.9998,
+    "clip_mult": 20.0,
+    "fixed_step_size": 0.01,
+    "intended_fraction": 0.5,
+    "intentional_enabled": 1.0,
+    "norm_decay": 0.99,
+    "norm_epsilon": 1e-08,
+    "optimizer_epsilon": 1e-08,
+    "update_features": 1.0,
+    "use_adaptive_clip": 1.0,
+    "use_diagonal_normalization": 0.0,
+    "weight_decay": 0.0
+   },
+   "late_window_slope_mean": -0.00010257243571428448,
+   "n_seeds": 5,
+   "paired_vs_control": {
+    "all_seeds_improve": false,
+    "beats_control": false,
+    "confirmation_candidate": false,
+    "control": "intentional_updates_off",
+    "mean_diff": -0.023564000933333395,
+    "per_seed_diff": [
+     -0.021963,
+     -0.024517,
+     -0.025513,
+     -0.023027,
+     -0.0228
+    ],
+    "seeds": [
+     1561000,
+     1561001,
+     1561002,
+     1561003,
+     1561004
+    ],
+    "stderr_diff": 0.0006380439543571693
+   },
+   "per_seed_average_online_accuracy": [
+    0.768087,
+    0.76924,
+    0.768303,
+    0.76732,
+    0.768827
+   ],
+   "per_seed_late_window_slope": [
+    7e-05,
+    -1.357e-05,
+    -0.00044786,
+    0.00033286,
+    -0.00045429
+   ],
+   "seeds": [
+    1561000,
+    1561001,
+    1561002,
+    1561003,
+    1561004
+   ],
+   "wall_clock_seconds_total": 3217.99
+  },
+  {
+   "average_online_accuracy_mean": 0.7605819805333334,
+   "average_online_accuracy_stderr": 0.0004215980884557886,
+   "average_plasticity_mean": 0.44116764313333334,
+   "base_learner": "upgd_w",
+   "config_name": "intentional_updates_no_clip",
+   "hyperparameters": {
+    "beta2": 0.999,
+    "beta_clip": 0.9998,
+    "clip_mult": 20.0,
+    "fixed_step_size": 0.01,
+    "intended_fraction": 0.5,
+    "intentional_enabled": 1.0,
+    "norm_decay": 0.99,
+    "norm_epsilon": 1e-08,
+    "optimizer_epsilon": 1e-08,
+    "update_features": 1.0,
+    "use_adaptive_clip": 0.0,
+    "use_diagonal_normalization": 1.0,
+    "weight_decay": 0.0
+   },
+   "late_window_slope_mean": -7.371459285714224e-05,
+   "n_seeds": 5,
+   "paired_vs_control": {
+    "all_seeds_improve": false,
+    "beats_control": false,
+    "confirmation_candidate": false,
+    "control": "intentional_updates_off",
+    "mean_diff": -0.03133733440000004,
+    "per_seed_diff": [
+     -0.03048,
+     -0.032547,
+     -0.032823,
+     -0.03077,
+     -0.030067
+    ],
+    "seeds": [
+     1561000,
+     1561001,
+     1561002,
+     1561003,
+     1561004
+    ],
+    "stderr_diff": 0.0005631240835055869
+   },
+   "per_seed_average_online_accuracy": [
+    0.75957,
+    0.76121,
+    0.760993,
+    0.759577,
+    0.76156
+   ],
+   "per_seed_late_window_slope": [
+    -3.643e-05,
+    9.286e-05,
+    -0.00052214,
+    0.00028786,
+    -0.00019071
+   ],
+   "seeds": [
+    1561000,
+    1561001,
+    1561002,
+    1561003,
+    1561004
+   ],
+   "wall_clock_seconds_total": 4642.72
+  },
+  {
+   "average_online_accuracy_mean": 0.7605573135666667,
+   "average_online_accuracy_stderr": 0.0003942216603366988,
+   "average_plasticity_mean": 0.4411816630333334,
+   "base_learner": "upgd_w",
+   "config_name": "intentional_updates_ipmnist",
+   "hyperparameters": {
+    "beta2": 0.999,
+    "beta_clip": 0.9998,
+    "clip_mult": 20.0,
+    "fixed_step_size": 0.01,
+    "intended_fraction": 0.5,
+    "intentional_enabled": 1.0,
+    "norm_decay": 0.99,
+    "norm_epsilon": 1e-08,
+    "optimizer_epsilon": 1e-08,
+    "update_features": 1.0,
+    "use_adaptive_clip": 1.0,
+    "use_diagonal_normalization": 1.0,
+    "weight_decay": 0.0
+   },
+   "late_window_slope_mean": -9.728545714285718e-05,
+   "n_seeds": 5,
+   "paired_vs_control": {
+    "all_seeds_improve": false,
+    "beats_control": false,
+    "confirmation_candidate": false,
+    "control": "intentional_updates_off",
+    "mean_diff": -0.03136200136666665,
+    "per_seed_diff": [
+     -0.030427,
+     -0.032617,
+     -0.0329,
+     -0.030733,
+     -0.030133
+    ],
+    "seeds": [
+     1561000,
+     1561001,
+     1561002,
+     1561003,
+     1561004
+    ],
+    "stderr_diff": 0.0005796259161207116
+   },
+   "per_seed_average_online_accuracy": [
+    0.759623,
+    0.76114,
+    0.760917,
+    0.759613,
+    0.761493
+   ],
+   "per_seed_late_window_slope": [
+    5.286e-05,
+    -3.786e-05,
+    -0.00063714,
+    0.00040143,
+    -0.00026571
+   ],
+   "seeds": [
+    1561000,
+    1561001,
+    1561002,
+    1561003,
+    1561004
+   ],
+   "wall_clock_seconds_total": 4612.52
+  },
+  {
+   "average_online_accuracy_mean": 0.6321886518666666,
+   "average_online_accuracy_stderr": 0.0010999594052714318,
+   "average_plasticity_mean": 0.4115178785666667,
+   "base_learner": "upgd_w",
+   "config_name": "intentional_updates_head_only",
+   "hyperparameters": {
+    "beta2": 0.999,
+    "beta_clip": 0.9998,
+    "clip_mult": 20.0,
+    "fixed_step_size": 0.01,
+    "intended_fraction": 0.5,
+    "intentional_enabled": 1.0,
+    "norm_decay": 0.99,
+    "norm_epsilon": 1e-08,
+    "optimizer_epsilon": 1e-08,
+    "update_features": 0.0,
+    "use_adaptive_clip": 1.0,
+    "use_diagonal_normalization": 1.0,
+    "weight_decay": 0.0
+   },
+   "late_window_slope_mean": 2.1285428571427347e-05,
+   "n_seeds": 5,
+   "paired_vs_control": {
+    "all_seeds_improve": false,
+    "beats_control": false,
+    "confirmation_candidate": false,
+    "control": "intentional_updates_off",
+    "mean_diff": -0.1597306630666667,
+    "per_seed_diff": [
+     -0.155493,
+     -0.161093,
+     -0.159357,
+     -0.16097,
+     -0.16174
+    ],
+    "seeds": [
+     1561000,
+     1561001,
+     1561002,
+     1561003,
+     1561004
+    ],
+    "stderr_diff": 0.0011297130600945995
+   },
+   "per_seed_average_online_accuracy": [
+    0.634557,
+    0.632663,
+    0.63446,
+    0.629377,
+    0.629887
+   ],
+   "per_seed_late_window_slope": [
+    0.00025286,
+    5.929e-05,
+    -0.00112714,
+    0.00072857,
+    0.00019286
+   ],
+   "seeds": [
+    1561000,
+    1561001,
+    1561002,
+    1561003,
+    1561004
+   ],
+   "wall_clock_seconds_total": 3360.69
+  }
+ ],
+ "schema": "alberta.ipmnist_screening.summary.v2",
+ "shard_manifest": [
+  {
+   "config_name": "intentional_updates_head_only",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_head_only_seed1561000.json",
+   "seed": 1561000,
+   "sha256": "9af6966dc723bf458d8590b54c495e003f1261839b685cf303cdf0c5bbdd9595",
+   "size_bytes": 5706
+  },
+  {
+   "config_name": "intentional_updates_head_only",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_head_only_seed1561001.json",
+   "seed": 1561001,
+   "sha256": "2e3d63c6665c58c671622d087c1d13ef8adca8e63ff31531eae88843a4cd59a2",
+   "size_bytes": 5691
+  },
+  {
+   "config_name": "intentional_updates_head_only",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_head_only_seed1561002.json",
+   "seed": 1561002,
+   "sha256": "7cceb70ce05342d6c278bc9df51b62c024fa9f8f55a736d86b3c44823ace5d25",
+   "size_bytes": 5697
+  },
+  {
+   "config_name": "intentional_updates_head_only",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_head_only_seed1561003.json",
+   "seed": 1561003,
+   "sha256": "7a9cbc4dbeaaf0384da6f145009802f6ff2a224ae2dda389ad85fa0932f65b25",
+   "size_bytes": 5737
+  },
+  {
+   "config_name": "intentional_updates_head_only",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_head_only_seed1561004.json",
+   "seed": 1561004,
+   "sha256": "68812677b1670a1938061c8ebabfaed572ee924bc55c7bd77160c69563960a94",
+   "size_bytes": 5708
+  },
+  {
+   "config_name": "intentional_updates_ipmnist",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_ipmnist_seed1561000.json",
+   "seed": 1561000,
+   "sha256": "75b4d5e5bff1a4647c993e048dee2f4e3606a68ff2dd59ae31ceac8541b593cf",
+   "size_bytes": 5723
+  },
+  {
+   "config_name": "intentional_updates_ipmnist",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_ipmnist_seed1561001.json",
+   "seed": 1561001,
+   "sha256": "04c24fa0c121903342d73e450bd3c97e4c322557c78d9d5cbdcf8b538ba3bbee",
+   "size_bytes": 5716
+  },
+  {
+   "config_name": "intentional_updates_ipmnist",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_ipmnist_seed1561002.json",
+   "seed": 1561002,
+   "sha256": "e17460cf7d83d3f15fd9adb2064da471c00c2ed63ebe8b1028ac506835c8d1d9",
+   "size_bytes": 5702
+  },
+  {
+   "config_name": "intentional_updates_ipmnist",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_ipmnist_seed1561003.json",
+   "seed": 1561003,
+   "sha256": "5ee23acee9deef06134f4c29e6d7ee535b0eb3afb31635dc428686298e789dd0",
+   "size_bytes": 5716
+  },
+  {
+   "config_name": "intentional_updates_ipmnist",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_ipmnist_seed1561004.json",
+   "seed": 1561004,
+   "sha256": "cdfbabf5d72f65ada75b764d787d14bcb85e08b18b6ed978c114b7e60c6519ae",
+   "size_bytes": 5708
+  },
+  {
+   "config_name": "intentional_updates_no_clip",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_clip_seed1561000.json",
+   "seed": 1561000,
+   "sha256": "03ab44d3e1231e727271b33fe70c155c75aa10fdcba11dd7b17a4733c4a2b5ff",
+   "size_bytes": 5713
+  },
+  {
+   "config_name": "intentional_updates_no_clip",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_clip_seed1561001.json",
+   "seed": 1561001,
+   "sha256": "a432038e701aa48b50da71a6e47964635dba0656ee46df93f1af6dc04663c992",
+   "size_bytes": 5728
+  },
+  {
+   "config_name": "intentional_updates_no_clip",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_clip_seed1561002.json",
+   "seed": 1561002,
+   "sha256": "a313b6d77cacff59bb9b5221e88f6286cdc9b2613234aa65625012c1eeeb6853",
+   "size_bytes": 5716
+  },
+  {
+   "config_name": "intentional_updates_no_clip",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_clip_seed1561003.json",
+   "seed": 1561003,
+   "sha256": "56b149636a185b0f4c78ce1d8c2a0a0f0e3e1527040adf610f065553aa9957a4",
+   "size_bytes": 5715
+  },
+  {
+   "config_name": "intentional_updates_no_clip",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_clip_seed1561004.json",
+   "seed": 1561004,
+   "sha256": "3a9ee2c7ef9c226bf00984db1997bf951c8060ab81e5bf53be618d17f8415a6c",
+   "size_bytes": 5711
+  },
+  {
+   "config_name": "intentional_updates_no_diag",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_diag_seed1561000.json",
+   "seed": 1561000,
+   "sha256": "180e53599226e125f92371acca473bef05c2a57b98c8fd12bf946430c608c084",
+   "size_bytes": 5732
+  },
+  {
+   "config_name": "intentional_updates_no_diag",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_diag_seed1561001.json",
+   "seed": 1561001,
+   "sha256": "971b97d5a1548b907e49091ab569e2d62e787e2ef0025a9c8eeea191084d15fe",
+   "size_bytes": 5710
+  },
+  {
+   "config_name": "intentional_updates_no_diag",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_diag_seed1561002.json",
+   "seed": 1561002,
+   "sha256": "49b5d202324244146eddcce5319ae892ecdce9f3d8ac9d80f3aa9c0bf078567b",
+   "size_bytes": 5728
+  },
+  {
+   "config_name": "intentional_updates_no_diag",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_diag_seed1561003.json",
+   "seed": 1561003,
+   "sha256": "e04538aecdf47c956a9aa2e9b1d44edd07d295c70712ae0ce10520dd5748606e",
+   "size_bytes": 5703
+  },
+  {
+   "config_name": "intentional_updates_no_diag",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_diag_seed1561004.json",
+   "seed": 1561004,
+   "sha256": "2a9291bd153f5b4d4174915c8a11a31dc918cb97d6a09aafd18de97ba4db753a",
+   "size_bytes": 5719
+  },
+  {
+   "config_name": "intentional_updates_off",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_off_seed1561000.json",
+   "seed": 1561000,
+   "sha256": "1a892778d5fa66d67ef96a9434b100ce3a4c2a303fcff341f807844a86fe616a",
+   "size_bytes": 5684
+  },
+  {
+   "config_name": "intentional_updates_off",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_off_seed1561001.json",
+   "seed": 1561001,
+   "sha256": "84f6d3da0665519e69019a4d0078637971b0e8571cd79302e6cb5f7a468bcb5e",
+   "size_bytes": 5700
+  },
+  {
+   "config_name": "intentional_updates_off",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_off_seed1561002.json",
+   "seed": 1561002,
+   "sha256": "2b803fefb0a94f7574e900517e4e7ff16c7968e3815f0247cd473fe364ca83c1",
+   "size_bytes": 5710
+  },
+  {
+   "config_name": "intentional_updates_off",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_off_seed1561003.json",
+   "seed": 1561003,
+   "sha256": "e030f3ead8995c16731576c76248a23cfcce03b74bc542369f763d3b7c25b6d8",
+   "size_bytes": 5701
+  },
+  {
+   "config_name": "intentional_updates_off",
+   "path": "outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_off_seed1561004.json",
+   "seed": 1561004,
+   "sha256": "2f9204d9108f3c1b8fc70a0036f5c5082572d26324f31c39512fb251bb0c2fd5",
+   "size_bytes": 5691
+  }
+ ],
+ "slope_window": 15,
+ "source_provenance": {
+  "git_commit": "8c235f21ce8a7d7fe01c4c8bc712877dd0eaef3a",
+  "git_object_format": "sha1",
+  "git_tree": "2495d09c59b6aed314fb3a05cc38225587ca0b6c",
+  "relevant_source_file_count": 230,
+  "relevant_source_scope": "tracked:alberta_framework/**,pyproject.toml,uv.lock",
+  "relevant_source_sha256": "5c908bb81e548f355276825232fde23d2d089862ccaa7eedd7b77257fd4e0aea",
+  "schema": "alberta.ipmnist_screening.source_provenance.v1",
+  "uv_lock_sha256": "0fc52a642ba70bd64bfa80049b1efc99c35829d01e44705370994ad818ee82d7",
+  "worktree_clean": true
+ }
+}

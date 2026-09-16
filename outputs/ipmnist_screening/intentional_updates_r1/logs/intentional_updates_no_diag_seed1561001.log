@@ -1,0 +1,6 @@
+2026-09-16 04:07:23,478 INFO loading MNIST from data_home=/tmp/asi-next64-intentional-supervised/outputs/upgd_ipmnist/openml_cache
+2026-09-16 04:07:30,916 INFO running intentional_updates_no_diag seed=1561001 for 60 tasks x 5000 steps (noise_mode=step, noise_pool_steps=None)
+2026-09-16 04:11:11,796 INFO intentional_updates_no_diag seed=1561001 task 20/60 online_acc=0.7640 elapsed=215.9s
+2026-09-16 04:14:48,258 INFO intentional_updates_no_diag seed=1561001 task 40/60 online_acc=0.7662 elapsed=432.3s
+2026-09-16 04:18:17,408 INFO intentional_updates_no_diag seed=1561001 task 60/60 online_acc=0.7664 elapsed=641.5s
+2026-09-16 04:18:18,251 INFO intentional_updates_no_diag seed=1561001 done: avg online acc 0.7692 (wall 641.5s) -> outputs/ipmnist_screening/intentional_updates_r1/shards/intentional_updates_no_diag_seed1561001.json

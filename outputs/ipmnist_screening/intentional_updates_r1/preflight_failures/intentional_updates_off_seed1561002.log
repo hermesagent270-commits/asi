@@ -1,0 +1,26 @@
+2026-09-16 03:49:56,789 INFO loading MNIST from data_home=/tmp/asi-next64-intentional-supervised/outputs/upgd_ipmnist/openml_cache
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/tmp/asi-next64-intentional-supervised/alberta_framework/benchmarks/ipmnist_screening.py", line 12527, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/tmp/asi-next64-intentional-supervised/alberta_framework/benchmarks/ipmnist_screening.py", line 12463, in main
+    data_x, data_y = load_mnist_train(data_home)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/asi-next64-intentional-supervised/alberta_framework/benchmarks/upgd_ipmnist.py", line 1221, in load_mnist_train
+    raw = fetch_openml(
+          ^^^^^^^^^^^^^
+  File "/tmp/asi-next64-intentional-supervised/.venv/lib/python3.12/site-packages/sklearn/utils/_param_validation.py", line 218, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/asi-next64-intentional-supervised/.venv/lib/python3.12/site-packages/sklearn/datasets/_openml.py", line 1001, in fetch_openml
+    data_home = get_data_home(data_home=data_home)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/asi-next64-intentional-supervised/.venv/lib/python3.12/site-packages/sklearn/utils/_param_validation.py", line 191, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/asi-next64-intentional-supervised/.venv/lib/python3.12/site-packages/sklearn/datasets/_base.py", line 85, in get_data_home
+    makedirs(data_home, exist_ok=True)
+  File "<frozen os>", line 225, in makedirs
+FileExistsError: [Errno 17] File exists: '/tmp/asi-next64-intentional-supervised/outputs/upgd_ipmnist/openml_cache'

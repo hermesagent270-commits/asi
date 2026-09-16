@@ -1,0 +1,484 @@
+{
+  "audit_source_sha256": "047bd9ff32cf4f8aa6918e966d3a9c36279d244a3b1abc6df5c023dc05c5d554",
+  "execution": {
+    "dataset_identity_sha256": "0b484ebd00446763a6e9b4601369db82374184323e80cac8f0598bb70aa539eb",
+    "relevant_source_sha256": "5c908bb81e548f355276825232fde23d2d089862ccaa7eedd7b77257fd4e0aea",
+    "runtime_identity_sha256": "226cc84b831e42cba9fbe524f0bf035b949582343ec895aeb8bcf455ab466055",
+    "shards": [
+      {
+        "arm": "intentional_updates_head_only",
+        "path": "shards/intentional_updates_head_only_seed1561000.json",
+        "seed": 1561000,
+        "sha256": "9af6966dc723bf458d8590b54c495e003f1261839b685cf303cdf0c5bbdd9595"
+      },
+      {
+        "arm": "intentional_updates_head_only",
+        "path": "shards/intentional_updates_head_only_seed1561001.json",
+        "seed": 1561001,
+        "sha256": "2e3d63c6665c58c671622d087c1d13ef8adca8e63ff31531eae88843a4cd59a2"
+      },
+      {
+        "arm": "intentional_updates_head_only",
+        "path": "shards/intentional_updates_head_only_seed1561002.json",
+        "seed": 1561002,
+        "sha256": "7cceb70ce05342d6c278bc9df51b62c024fa9f8f55a736d86b3c44823ace5d25"
+      },
+      {
+        "arm": "intentional_updates_head_only",
+        "path": "shards/intentional_updates_head_only_seed1561003.json",
+        "seed": 1561003,
+        "sha256": "7a9cbc4dbeaaf0384da6f145009802f6ff2a224ae2dda389ad85fa0932f65b25"
+      },
+      {
+        "arm": "intentional_updates_head_only",
+        "path": "shards/intentional_updates_head_only_seed1561004.json",
+        "seed": 1561004,
+        "sha256": "68812677b1670a1938061c8ebabfaed572ee924bc55c7bd77160c69563960a94"
+      },
+      {
+        "arm": "intentional_updates_ipmnist",
+        "path": "shards/intentional_updates_ipmnist_seed1561000.json",
+        "seed": 1561000,
+        "sha256": "75b4d5e5bff1a4647c993e048dee2f4e3606a68ff2dd59ae31ceac8541b593cf"
+      },
+      {
+        "arm": "intentional_updates_ipmnist",
+        "path": "shards/intentional_updates_ipmnist_seed1561001.json",
+        "seed": 1561001,
+        "sha256": "04c24fa0c121903342d73e450bd3c97e4c322557c78d9d5cbdcf8b538ba3bbee"
+      },
+      {
+        "arm": "intentional_updates_ipmnist",
+        "path": "shards/intentional_updates_ipmnist_seed1561002.json",
+        "seed": 1561002,
+        "sha256": "e17460cf7d83d3f15fd9adb2064da471c00c2ed63ebe8b1028ac506835c8d1d9"
+      },
+      {
+        "arm": "intentional_updates_ipmnist",
+        "path": "shards/intentional_updates_ipmnist_seed1561003.json",
+        "seed": 1561003,
+        "sha256": "5ee23acee9deef06134f4c29e6d7ee535b0eb3afb31635dc428686298e789dd0"
+      },
+      {
+        "arm": "intentional_updates_ipmnist",
+        "path": "shards/intentional_updates_ipmnist_seed1561004.json",
+        "seed": 1561004,
+        "sha256": "cdfbabf5d72f65ada75b764d787d14bcb85e08b18b6ed978c114b7e60c6519ae"
+      },
+      {
+        "arm": "intentional_updates_no_clip",
+        "path": "shards/intentional_updates_no_clip_seed1561000.json",
+        "seed": 1561000,
+        "sha256": "03ab44d3e1231e727271b33fe70c155c75aa10fdcba11dd7b17a4733c4a2b5ff"
+      },
+      {
+        "arm": "intentional_updates_no_clip",
+        "path": "shards/intentional_updates_no_clip_seed1561001.json",
+        "seed": 1561001,
+        "sha256": "a432038e701aa48b50da71a6e47964635dba0656ee46df93f1af6dc04663c992"
+      },
+      {
+        "arm": "intentional_updates_no_clip",
+        "path": "shards/intentional_updates_no_clip_seed1561002.json",
+        "seed": 1561002,
+        "sha256": "a313b6d77cacff59bb9b5221e88f6286cdc9b2613234aa65625012c1eeeb6853"
+      },
+      {
+        "arm": "intentional_updates_no_clip",
+        "path": "shards/intentional_updates_no_clip_seed1561003.json",
+        "seed": 1561003,
+        "sha256": "56b149636a185b0f4c78ce1d8c2a0a0f0e3e1527040adf610f065553aa9957a4"
+      },
+      {
+        "arm": "intentional_updates_no_clip",
+        "path": "shards/intentional_updates_no_clip_seed1561004.json",
+        "seed": 1561004,
+        "sha256": "3a9ee2c7ef9c226bf00984db1997bf951c8060ab81e5bf53be618d17f8415a6c"
+      },
+      {
+        "arm": "intentional_updates_no_diag",
+        "path": "shards/intentional_updates_no_diag_seed1561000.json",
+        "seed": 1561000,
+        "sha256": "180e53599226e125f92371acca473bef05c2a57b98c8fd12bf946430c608c084"
+      },
+      {
+        "arm": "intentional_updates_no_diag",
+        "path": "shards/intentional_updates_no_diag_seed1561001.json",
+        "seed": 1561001,
+        "sha256": "971b97d5a1548b907e49091ab569e2d62e787e2ef0025a9c8eeea191084d15fe"
+      },
+      {
+        "arm": "intentional_updates_no_diag",
+        "path": "shards/intentional_updates_no_diag_seed1561002.json",
+        "seed": 1561002,
+        "sha256": "49b5d202324244146eddcce5319ae892ecdce9f3d8ac9d80f3aa9c0bf078567b"
+      },
+      {
+        "arm": "intentional_updates_no_diag",
+        "path": "shards/intentional_updates_no_diag_seed1561003.json",
+        "seed": 1561003,
+        "sha256": "e04538aecdf47c956a9aa2e9b1d44edd07d295c70712ae0ce10520dd5748606e"
+      },
+      {
+        "arm": "intentional_updates_no_diag",
+        "path": "shards/intentional_updates_no_diag_seed1561004.json",
+        "seed": 1561004,
+        "sha256": "2a9291bd153f5b4d4174915c8a11a31dc918cb97d6a09aafd18de97ba4db753a"
+      },
+      {
+        "arm": "intentional_updates_off",
+        "path": "shards/intentional_updates_off_seed1561000.json",
+        "seed": 1561000,
+        "sha256": "1a892778d5fa66d67ef96a9434b100ce3a4c2a303fcff341f807844a86fe616a"
+      },
+      {
+        "arm": "intentional_updates_off",
+        "path": "shards/intentional_updates_off_seed1561001.json",
+        "seed": 1561001,
+        "sha256": "84f6d3da0665519e69019a4d0078637971b0e8571cd79302e6cb5f7a468bcb5e"
+      },
+      {
+        "arm": "intentional_updates_off",
+        "path": "shards/intentional_updates_off_seed1561002.json",
+        "seed": 1561002,
+        "sha256": "2b803fefb0a94f7574e900517e4e7ff16c7968e3815f0247cd473fe364ca83c1"
+      },
+      {
+        "arm": "intentional_updates_off",
+        "path": "shards/intentional_updates_off_seed1561003.json",
+        "seed": 1561003,
+        "sha256": "e030f3ead8995c16731576c76248a23cfcce03b74bc542369f763d3b7c25b6d8"
+      },
+      {
+        "arm": "intentional_updates_off",
+        "path": "shards/intentional_updates_off_seed1561004.json",
+        "seed": 1561004,
+        "sha256": "2f9204d9108f3c1b8fc70a0036f5c5082572d26324f31c39512fb251bb0c2fd5"
+      }
+    ],
+    "source_commit": "8c235f21ce8a7d7fe01c4c8bc712877dd0eaef3a",
+    "source_identity_sha256": "d4075cbbdc95ed04f4d02bbd9f79272040d40935f2cf1aeae11cf72e33801099",
+    "summary_sha256": "35048f91058b9c76a58b247f0e8086f8d0fd9874a90a66f0243c6ca7feec4828"
+  },
+  "plan": {
+    "all_paired_seeds_must_improve": true,
+    "arms": [
+      "intentional_updates_ipmnist",
+      "intentional_updates_no_diag",
+      "intentional_updates_no_clip",
+      "intentional_updates_head_only",
+      "intentional_updates_off"
+    ],
+    "config": {
+      "hidden1": 300,
+      "hidden2": 150,
+      "input_dim": 784,
+      "n_classes": 10,
+      "n_tasks": 60,
+      "task_length": 5000
+    },
+    "path": "PREREGISTRATION.md",
+    "primary_candidate": "intentional_updates_ipmnist",
+    "primary_control": "intentional_updates_off",
+    "seeds": [
+      1561000,
+      1561001,
+      1561002,
+      1561003,
+      1561004
+    ],
+    "sha256": "a420446877eebeb516c826e710b4f8aaeb2424cad2f33f0281fd1d05988b8d4a",
+    "win_threshold_strictly_greater_than": 0.005
+  },
+  "policy": {
+    "development_only": true,
+    "reference_dev_changed": false,
+    "scientific_promotion_allowed": false
+  },
+  "primary_comparison": {
+    "all_paired_seeds_positive": false,
+    "candidate": "intentional_updates_ipmnist",
+    "control": "intentional_updates_off",
+    "decision": "development_rejection",
+    "paired_online_accuracy_delta": {
+      "mean": -0.03136200136666665,
+      "sample_standard_deviation": 0.0012960829499663689,
+      "standard_error": 0.0005796259161206518,
+      "values_by_seed": [
+        -0.030426671666666683,
+        -0.03261667366666676,
+        -0.03289999549999989,
+        -0.030733336333333305,
+        -0.030133329666666597
+      ]
+    }
+  },
+  "results": {
+    "intentional_updates_head_only": {
+      "loss": {
+        "mean": 1.5030180415333334,
+        "sample_standard_deviation": 0.008016848917896556,
+        "standard_error": 0.0035852438291524655,
+        "values_by_seed": [
+          1.4959816248333333,
+          1.4979295718333332,
+          1.4976550141666667,
+          1.5117531685,
+          1.5117708283333333
+        ]
+      },
+      "online_accuracy": {
+        "mean": 0.6321886518666666,
+        "sample_standard_deviation": 0.0024595840026771613,
+        "standard_error": 0.0010999594052714314,
+        "values_by_seed": [
+          0.634556649,
+          0.6326633198333333,
+          0.634459985,
+          0.6293766521666666,
+          0.6298866533333333
+        ]
+      },
+      "plasticity": {
+        "mean": 0.4115178785666666,
+        "sample_standard_deviation": 0.00048146230262754975,
+        "standard_error": 0.00021531648745575535,
+        "values_by_seed": [
+          0.4112787745,
+          0.4120252661666666,
+          0.41083293066666665,
+          0.411894515,
+          0.41155790649999996
+        ]
+      },
+      "resources_per_seed": {
+        "backward_passes": 300000,
+        "model_queries": 600000,
+        "observations": 300000,
+        "persistent_numeric_bytes": 2263568,
+        "timing_is_selection_metric": false,
+        "timing_telemetry_seconds": [
+          683.43,
+          672.51,
+          673.75,
+          668.69,
+          662.31
+        ],
+        "updates": 300000
+      }
+    },
+    "intentional_updates_ipmnist": {
+      "loss": {
+        "mean": 0.9475176286666667,
+        "sample_standard_deviation": 0.011174074751396623,
+        "standard_error": 0.004997198145957382,
+        "values_by_seed": [
+          0.9459143551666667,
+          0.9397278845,
+          0.9358660074999999,
+          0.9643244726666667,
+          0.9517554235
+        ]
+      },
+      "online_accuracy": {
+        "mean": 0.7605573135666667,
+        "sample_standard_deviation": 0.0008815064307157685,
+        "standard_error": 0.00039422166033673336,
+        "values_by_seed": [
+          0.7596233133333333,
+          0.7611399778333333,
+          0.7609166495,
+          0.759613312,
+          0.7614933151666666
+        ]
+      },
+      "plasticity": {
+        "mean": 0.4411816630333333,
+        "sample_standard_deviation": 0.0016274628509718974,
+        "standard_error": 0.0007278235131257544,
+        "values_by_seed": [
+          0.44163775266666666,
+          0.43968172266666666,
+          0.44378852766666665,
+          0.440155766,
+          0.44064454616666665
+        ]
+      },
+      "resources_per_seed": {
+        "backward_passes": 300000,
+        "model_queries": 600000,
+        "observations": 300000,
+        "persistent_numeric_bytes": 2263568,
+        "timing_is_selection_metric": false,
+        "timing_telemetry_seconds": [
+          924.12,
+          924.27,
+          925.2,
+          927.19,
+          911.74
+        ],
+        "updates": 300000
+      }
+    },
+    "intentional_updates_no_clip": {
+      "loss": {
+        "mean": 0.9476463764666667,
+        "sample_standard_deviation": 0.011344423590457094,
+        "standard_error": 0.005073380462762859,
+        "values_by_seed": [
+          0.9460862984999999,
+          0.9396093953333333,
+          0.9359627153333334,
+          0.9647988181666667,
+          0.951774655
+        ]
+      },
+      "online_accuracy": {
+        "mean": 0.7605819805333333,
+        "sample_standard_deviation": 0.0009427219849711413,
+        "standard_error": 0.0004215980884558014,
+        "values_by_seed": [
+          0.7595699835,
+          0.7612099801666666,
+          0.7609933125,
+          0.7595766454999999,
+          0.761559981
+        ]
+      },
+      "plasticity": {
+        "mean": 0.44116764313333334,
+        "sample_standard_deviation": 0.0016638396078827468,
+        "standard_error": 0.0007440916933764833,
+        "values_by_seed": [
+          0.44169658366666664,
+          0.4396463151666667,
+          0.44380262783333335,
+          0.44004054649999996,
+          0.4406521425
+        ]
+      },
+      "resources_per_seed": {
+        "backward_passes": 300000,
+        "model_queries": 600000,
+        "observations": 300000,
+        "persistent_numeric_bytes": 2263568,
+        "timing_is_selection_metric": false,
+        "timing_telemetry_seconds": [
+          930.46,
+          936.43,
+          919.66,
+          919.75,
+          936.42
+        ],
+        "updates": 300000
+      }
+    },
+    "intentional_updates_no_diag": {
+      "loss": {
+        "mean": 0.9042477542,
+        "sample_standard_deviation": 0.005641890833731405,
+        "standard_error": 0.002523130285171277,
+        "values_by_seed": [
+          0.9038463501666667,
+          0.9029567871666667,
+          0.9023195846666667,
+          0.9136482818333334,
+          0.8984677671666667
+        ]
+      },
+      "online_accuracy": {
+        "mean": 0.7683553140000001,
+        "sample_standard_deviation": 0.0007334155200181446,
+        "standard_error": 0.0003279933917027858,
+        "values_by_seed": [
+          0.768086645,
+          0.7692399828333334,
+          0.768303315,
+          0.7673199813333333,
+          0.7688266458333334
+        ]
+      },
+      "plasticity": {
+        "mean": 0.42765032236666667,
+        "sample_standard_deviation": 0.001063999301988047,
+        "standard_error": 0.00047583495345152,
+        "values_by_seed": [
+          0.4293159713333334,
+          0.4264037103333333,
+          0.42777059483333335,
+          0.42723914516666667,
+          0.4275221901666667
+        ]
+      },
+      "resources_per_seed": {
+        "backward_passes": 300000,
+        "model_queries": 600000,
+        "observations": 300000,
+        "persistent_numeric_bytes": 2263568,
+        "timing_is_selection_metric": false,
+        "timing_telemetry_seconds": [
+          648.62,
+          641.5,
+          642.5,
+          642.85,
+          642.52
+        ],
+        "updates": 300000
+      }
+    },
+    "intentional_updates_off": {
+      "loss": {
+        "mean": 0.6634380954999999,
+        "sample_standard_deviation": 0.003937889041067977,
+        "standard_error": 0.0017610775167358915,
+        "values_by_seed": [
+          0.6677531474999999,
+          0.6602476966666667,
+          0.6586270683333333,
+          0.6639989208333332,
+          0.6665636441666667
+        ]
+      },
+      "online_accuracy": {
+        "mean": 0.7919193149333333,
+        "sample_standard_deviation": 0.0018047851300732017,
+        "standard_error": 0.0008071244471248958,
+        "values_by_seed": [
+          0.790049985,
+          0.7937566515000001,
+          0.7938166449999999,
+          0.7903466483333333,
+          0.7916266448333332
+        ]
+      },
+      "plasticity": {
+        "mean": 0.3818504505,
+        "sample_standard_deviation": 0.0015994048648004771,
+        "standard_error": 0.0007152756002475455,
+        "values_by_seed": [
+          0.3795282445,
+          0.38369706666666664,
+          0.3826690035,
+          0.38227096166666663,
+          0.38108697616666665
+        ]
+      },
+      "resources_per_seed": {
+        "backward_passes": 300000,
+        "model_queries": 600000,
+        "observations": 300000,
+        "persistent_numeric_bytes": 1134916,
+        "timing_is_selection_metric": false,
+        "timing_telemetry_seconds": [
+          64.06,
+          62.91,
+          62.82,
+          62.33,
+          67.93
+        ],
+        "updates": 300000
+      }
+    }
+  },
+  "schema": "asi.ipmnist.intentional_updates.supervised_audit.v1"
+}
