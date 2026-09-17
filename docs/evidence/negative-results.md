@@ -388,6 +388,8 @@ postmortem.
     Do not retry this configuration without a causal hypothesis that addresses
     the gap to fixed normalized SGD. Record:
     [`intentional_updates_r1/`](../../outputs/ipmnist_screening/intentional_updates_r1/).
+    The [attempt reconciliation](../../outputs/ipmnist_screening/intentional_updates_r1/REVIEW_RECONCILIATION.md)
+    binds the retained preflight failures to their later completed shards.
 
 ## EMNIST transfer results
 
