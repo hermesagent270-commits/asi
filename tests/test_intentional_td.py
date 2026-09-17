@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from alberta_framework.core.intentional_td import (
     IntentionalTDConfig,
@@ -62,3 +63,31 @@ def test_fixed_step_control_is_exact_sgd_with_mechanism_off():
         weights, init_intentional_td(weights), gradient, error, config
     )
     np.testing.assert_array_equal(changed, weights + (0.125 * error) * gradient)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("adaptive", [False, True])
+@pytest.mark.parametrize("error", [-10.0, 10.0])
+def test_binding_clip_limits_prediction_change(compiled, adaptive, error):
+    # With one unit feature and no trace/RMS, the observed prediction change
+    # is eta * clipped_error. Choose caps that bind in both clipping modes.
+    config = IntentionalTDConfig(
+        eta=0.2, lamda=0.0, use_rmsprop=False,
+        beta_clip=0.5, clip_mult=0.1, use_adaptive_clip=adaptive,
+    )
+    weights = jnp.zeros(1)
+    state = init_intentional_td(weights)
+
+    def update(w, s, d):
+        return intentional_td_update(w, s, jnp.ones(1), d, config)
+
+    step = jax.jit(update) if compiled else update
+    # The second error also binds, and distinguishes the running adaptive
+    # cap (sqrt(300) / 10) from a cap based only on the current error (2).
+    for index, value in enumerate((error, 2 * error)):
+        cap = (1.0 if index == 0 else np.sqrt(300.0) / 10) if adaptive else 1.0
+        changed, state = step(weights, state, jnp.array(value))
+        np.testing.assert_allclose(
+            changed - weights, [0.2 * np.copysign(cap, value)], rtol=2e-6
+        )
+        weights = changed

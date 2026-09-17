@@ -32,7 +32,9 @@ phase-switch reset, or privileged oracle input.
 
 ## Proposed comparison
 
-The CLI's `--plan` output is authoritative for all parameters:
+The CLI's `--plan` output is authoritative for all parameters. Exploration
+probability and RiverSwim size share constants with the executed policy and
+environment constructor:
 
 ```bash
 .venv/bin/python -m alberta_framework.benchmarks.intentional_td_development --plan
@@ -71,6 +73,19 @@ path and retain the complete log:
 .venv/bin/python -m alberta_framework.benchmarks.intentional_td_development \
   --output <new-development-result.json>
 ```
+
+The CLI refuses an occupied output path before source inspection or execution.
+Ordinary exceptions during source inspection produce a failure record with
+`source: null` and no runs. Ordinary run exceptions retain their environment,
+arm, seed, exception type and message alongside completed rows; any recorded
+failure exits with status 1. The final record is written in `finally`. This is
+not durable crash recovery: process death, `BaseException` interruption and
+output serialization or filesystem failures are outside this guarantee.
+
+The retained campaign binds its historical source snapshot. Subsequent review
+repairs to the CLI and tests do not change those artifacts or remeasure the
+campaign under the repaired source. No consumed seeds were rerun for those
+repairs, and no clipping-ablation performance claim follows from unit tests.
 
 All results remain development-only and permanently nonpromoting. The
 supervised comparison, deep-RL reproduction, stronger tuned baselines,

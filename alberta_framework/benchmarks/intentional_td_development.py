@@ -35,6 +35,8 @@ from alberta_framework.streams.closed_loop import (
 SEEDS = (15610, 15611, 15612, 15613)
 STEPS = 10_000
 PHASE_LENGTH = 500
+EPSILON = 0.1
+RIVERSWIM_STATES = 3
 ARMS = {
     "intentional": IntentionalTDConfig(eta=0.1, lamda=0.8),
     "intentional_no_trace": IntentionalTDConfig(eta=0.1, lamda=0.0),
@@ -57,9 +59,11 @@ def development_plan() -> dict[str, Any]:
         "reference_dev": False,
         "seeds": list(SEEDS),
         "steps_per_arm": STEPS,
-        "environments": {"switching_phase_length": PHASE_LENGTH, "riverswim_states": 3},
+        "environments": {
+            "switching_phase_length": PHASE_LENGTH, "riverswim_states": RIVERSWIM_STATES,
+        },
         "arms": {name: dataclasses.asdict(config) for name, config in ARMS.items()},
-        "epsilon": 0.1,
+        "epsilon": EPSILON,
         "initial_parameters": "zero linear action values on one-hot observations; no bias",
         "metric": "mean reward per transition; phase means on SwitchingTwoState",
         "baseline": "fresh fixed_trace and fixed_step arms; no historical matched value exists",
@@ -85,7 +89,7 @@ def _action(weights: jax.Array, observation: jax.Array, key: jax.Array) -> jax.A
     values = weights @ observation
     greedy = jr.categorical(tie_key, jnp.where(values == jnp.max(values), 0.0, -jnp.inf))
     random = jr.randint(random_key, (), 0, weights.shape[0])
-    return jnp.where(jr.uniform(explore_key) < 0.1, random, greedy).astype(jnp.int32)
+    return jnp.where(jr.uniform(explore_key) < EPSILON, random, greedy).astype(jnp.int32)
 
 
 def _numeric_bytes(tree: Any) -> int:
@@ -98,7 +102,7 @@ def run_arm(environment: str, arm: str, seed: int) -> dict[str, Any]:
     env: Any = (
         SwitchingTwoStateMDP(SwitchingTwoStateConfig(phase_length=PHASE_LENGTH))  # type: ignore[call-arg]
         if environment == "switching"
-        else RiverSwimMDP(RiverSwimConfig(n_states=3))  # type: ignore[call-arg]
+        else RiverSwimMDP(RiverSwimConfig(n_states=RIVERSWIM_STATES))  # type: ignore[call-arg]
     )
     key = jr.key(seed, impl="threefry2x32")
     env_state = env.init(jr.fold_in(key, 0))
@@ -196,31 +200,47 @@ def main() -> None:
         return
     if args.output is None:
         parser.error("--output is required for execution")
-    # Claim a NEW output before any workload. A failed run remains an explicit
-    # failure record, never an accepted partial result or a overwritten run.
+    # Claim a NEW output before source inspection or any workload. Ordinary
+    # source/run exceptions become explicit failures; output I/O and process
+    # interruption are outside this development-only publication guarantee.
     with args.output.open("x", encoding="utf-8") as output:
-        identity = _source_identity()
-        rows = []
-        failures = []
-        for environment in ENVIRONMENTS:
-            for seed in SEEDS:
-                for arm in ARMS:
-                    try:
-                        row = run_arm(environment, arm, seed)
-                        rows.append(row)
-                        print(json.dumps(row), flush=True)
-                    except ValueError as error:
-                        failure = {
-                            "environment": environment,
-                            "arm": arm,
-                            "seed": seed,
-                            "error": str(error),
-                        }
-                        failures.append(failure)
-                        print(json.dumps(failure), flush=True)
-        result = {"plan": plan, "source": identity, "runs": rows, "failures": failures}
-        json.dump(result, output, indent=2, allow_nan=False)
-        output.write("\n")
+        identity: dict[str, Any] | None = None
+        rows: list[dict[str, Any]] = []
+        failures: list[dict[str, Any]] = []
+        try:
+            try:
+                identity = _source_identity()
+            except Exception as error:
+                failure: dict[str, Any] = {
+                    "phase": "source_identity",
+                    "error": str(error),
+                    "error_type": type(error).__name__,
+                }
+                failures.append(failure)
+                print(json.dumps(failure), flush=True)
+            else:
+                for environment in ENVIRONMENTS:
+                    for seed in SEEDS:
+                        for arm in ARMS:
+                            try:
+                                row = run_arm(environment, arm, seed)
+                            except Exception as error:
+                                failure = {
+                                    "environment": environment,
+                                    "arm": arm,
+                                    "seed": seed,
+                                    "error": str(error),
+                                    "error_type": type(error).__name__,
+                                }
+                                failures.append(failure)
+                                print(json.dumps(failure), flush=True)
+                            else:
+                                rows.append(row)
+                                print(json.dumps(row), flush=True)
+        finally:
+            result = {"plan": plan, "source": identity, "runs": rows, "failures": failures}
+            json.dump(result, output, indent=2, allow_nan=False)
+            output.write("\n")
     if failures:
         raise SystemExit(1)
 
