@@ -23,6 +23,7 @@ from alberta_framework.core.world_model_ensemble import (
     WorldModelEnsemble,
     WorldModelEnsembleConfig,
     WorldModelEnsembleResourceBudget,
+    load_world_model_ensemble_checkpoint,
     save_world_model_ensemble_checkpoint,
 )
 
@@ -211,9 +212,9 @@ def test_init_uses_distinct_member_keys_and_isolated_real_replay_mask_keys() -> 
 @pytest.mark.parametrize(
     "key",
     [
-        jr.PRNGKey(7),
+        jr.key_data(jr.key(7, impl="threefry2x32")),
         jr.key(7, impl="rbg"),
-        jr.split(jr.key(7), 1),
+        jr.split(jr.key(7, impl="threefry2x32"), 1),
     ],
 )
 def test_init_rejects_keys_outside_scalar_typed_threefry_contract(key: jax.Array) -> None:
@@ -229,9 +230,9 @@ def test_init_rejects_keys_outside_scalar_typed_threefry_contract(key: jax.Array
 @pytest.mark.parametrize(
     "key",
     [
-        jr.PRNGKey(11),
+        jr.key_data(jr.key(11, impl="threefry2x32")),
         jr.key(11, impl="rbg"),
-        jr.split(jr.key(11), 1),
+        jr.split(jr.key(11, impl="threefry2x32"), 1),
     ],
 )
 def test_static_state_contract_rejects_noncanonical_bootstrap_keys(
@@ -239,12 +240,52 @@ def test_static_state_contract_rejects_noncanonical_bootstrap_keys(
     key: jax.Array,
 ) -> None:
     ensemble = WorldModelEnsemble(_config())
-    state = ensemble.init(jr.key(11))
+    state = ensemble.init(jr.key(11, impl="threefry2x32"))
     corrupt = state.replace(**{field: key})
-    with pytest.raises(TypeError, match=rf"state.{field} must be a scalar typed Threefry"):
+    with pytest.raises(ValueError, match=rf"state.{field} must be a scalar typed Threefry"):
         ensemble.state_valid(corrupt)
-    with pytest.raises(TypeError, match=rf"state.{field} must be a scalar typed Threefry"):
+    with pytest.raises(ValueError, match=rf"state.{field} must be a scalar typed Threefry"):
         ensemble.resource_budget(corrupt)
+
+
+def test_default_resource_budget_ignores_ambient_prng() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = WorldModelEnsemble(_config()).resource_budget().to_config()
+    with jax.default_prng_impl("rbg"):
+        observed = WorldModelEnsemble(_config()).resource_budget().to_config()
+    assert observed == expected
+
+
+def test_checkpoint_restore_and_continuation_ignore_ambient_prng(tmp_path: Path) -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        ensemble = WorldModelEnsemble(_config())
+        initial = ensemble.init(jr.key(17, impl="threefry2x32"))
+        first = ensemble.update(initial, *_event(0))
+        replay = ensemble.replay_update(first.state, *_event(1), jnp.asarray(True))
+        path = tmp_path / "ensemble"
+        save_world_model_ensemble_checkpoint(ensemble, replay.state, path)
+        expected_real = ensemble.update(replay.state, *_event(2))
+        expected_replay = ensemble.replay_update(
+            expected_real.state, *_event(3), jnp.asarray(True)
+        )
+        expected_budget = ensemble.resource_budget(expected_replay.state).to_config()
+
+    with jax.default_prng_impl("rbg"):
+        restored_ensemble, restored = load_world_model_ensemble_checkpoint(path)
+        _assert_tree_equal(restored, replay.state)
+        observed_real = restored_ensemble.update(restored, *_event(2))
+        observed_replay = restored_ensemble.replay_update(
+            observed_real.state, *_event(3), jnp.asarray(True)
+        )
+        assert bool(restored_ensemble.state_valid(observed_replay.state))
+        assert restored_ensemble.resource_budget(observed_replay.state).to_config() == (
+            expected_budget
+        )
+        assert restored_ensemble.resource_budget().to_config() == expected_budget
+    _assert_tree_equal(observed_real, expected_real)
+    _assert_tree_equal(observed_replay, expected_replay)
+    assert bool(observed_real.diagnostics.applied)
+    assert bool(observed_replay.diagnostics.applied)
 
 
 def test_resource_budget_counts_member_lifetime_words_and_matches_state() -> None:
