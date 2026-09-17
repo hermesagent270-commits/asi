@@ -140,8 +140,7 @@ def test_json_admission_rejects_invalid_profile_or_seed(case, monkeypatch, field
 
     monkeypatch.setattr(nap, "run_comparator", forbidden)
     with pytest.raises(ValueError):
-        restored = nap.result_from_json(json.dumps(payload))
-        nap.validate_result_with_dataset(restored, None, None)
+        nap.result_from_json(json.dumps(payload))
 
 
 @pytest.mark.parametrize("forged", [False, True])
