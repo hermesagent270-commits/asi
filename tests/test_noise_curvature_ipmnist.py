@@ -199,6 +199,15 @@ def test_scheduler_step_jit_matches_eager_through_controller_event() -> None:
     assert _tree_allclose(eager_params, jit_params)
     assert _tree_allclose(eager_state, jit_state)
     assert int(eager_state.controller_count) == 1
+    expected_bytes = noise_curvature_persistent_bytes(
+        parameter_count=sum(value.size for value in params.values()),
+        input_dim=params["w1"].shape[0],
+        control_interval=config.control_interval,
+    )
+    for final_params, final_state in ((eager_params, eager_state), (jit_params, jit_state)):
+        assert sum(
+            np.asarray(leaf).nbytes for leaf in jax.tree.leaves((final_params, final_state))
+        ) == expected_bytes
 
 
 def test_end_to_end_registered_arm_and_receipt_accounting() -> None:
@@ -207,12 +216,20 @@ def test_end_to_end_registered_arm_and_receipt_accounting() -> None:
     config = IPMNISTConfig(
         n_tasks=1, task_length=40, input_dim=4, hidden1=3, hidden2=2, n_classes=2
     )
+    observed_bytes = []
+
+    def observe(_task, params, state):
+        observed_bytes.append(
+            sum(np.asarray(leaf).nbytes for leaf in jax.tree.leaves((dict(params), state)))
+        )
+
     result = run_screening_config(
         data_x,
         data_y,
         screening_spec("noise_curvature_combined"),
         seed=0,
         config=config,
+        _task_observer=observe,
     )
     assert isinstance(result, ScreeningRunResult)
     assert np.isfinite(result.per_task_loss).all()
@@ -232,6 +249,7 @@ def test_end_to_end_registered_arm_and_receipt_accounting() -> None:
         input_dim=4,
         control_interval=40,
     )
+    assert observed_bytes == [resources["persistent_bytes"]]
 
 
 @pytest.mark.parametrize(

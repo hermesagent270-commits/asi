@@ -182,9 +182,13 @@ def _validated_params(params: object) -> dict[str, Array]:
         actual_type = type(value)
         if actual_type is not np.ndarray and not issubclass(actual_type, Array):
             raise ValueError(f"params.{name} must be an exact NumPy or JAX array")
+        # Validate before conversion: with x64 disabled, asarray would silently
+        # narrow a NumPy float64 payload and conceal its noncanonical dtype.
+        if value.dtype != np.dtype(np.float32):
+            raise ValueError(f"params.{name} must have the canonical float32 dtype")
         array = jnp.asarray(value)
-        if not jnp.issubdtype(array.dtype, jnp.floating) or array.size < 1:
-            raise ValueError(f"params.{name} must be a nonempty floating array")
+        if array.size < 1:
+            raise ValueError(f"params.{name} must be a nonempty float32 array")
         if not bool(jnp.all(jnp.isfinite(array))):
             raise ValueError(f"params.{name} must contain only finite values")
         total += array.size
@@ -213,7 +217,7 @@ def noise_curvature_persistent_bytes(
 ) -> int:
     """Exact canonical numeric payload bytes for one scheduler run.
 
-    Scope: parameters, Adam's two moments plus five scalar fields for each of
+    Scope: float32 parameters, Adam's two moments plus five scalar fields for each of
     six tensors, one retained block-power vector, diagnostic examples/labels,
     three layerwise LR/EMA arrays, and all counters.  Runner keys and the
     externally supplied data/schedule are excluded.
@@ -242,7 +246,11 @@ def noise_curvature_persistent_bytes(
 
 
 def init_noise_curvature_state(params: object, config: NoiseCurvatureConfig) -> NoiseCurvatureState:
-    """Initialize Adam and deterministic retained block-power directions."""
+    """Initialize Adam and deterministic block-power directions for float32 parameters.
+
+    Other dtypes are rejected before optimizer/controller allocation so the exact persistent-byte
+    receipt describes the complete admitted parameter/state payload.
+    """
 
     if type(config) is not NoiseCurvatureConfig:
         raise TypeError("config must be an exact NoiseCurvatureConfig")
