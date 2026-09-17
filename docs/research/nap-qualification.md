@@ -76,6 +76,12 @@ result against its exact dataset, run:
 .venv/bin/asi-nap-ipmnist --dataset /path/to/mnist.npz --validate /path/to/result.json
 ```
 
+The codec derives curve limits from the validated profile's task count and the
+protocol-difference limit from the catalog definition. Four runtime-identity
+fields and two hidden-norm values are v1 structural arities. Admission rejects
+unknown/non-string profiles, registry-payload drift and non-integer or
+unrostered seeds with `ValueError` before learner dispatch.
+
 This checks current source/runtime identities and the dataset and schedule
 digests before learner dispatch, then independently reexecutes the existing five
 arms from the record's seed and profile. Every result field must match exactly

@@ -160,7 +160,7 @@ class NaPCatalogEntry:
             raise ValueError("secondary/dependency provenance drift")
         if (
             type(self.protocol_differences) is not tuple
-            or len(self.protocol_differences) != 7
+            or len(self.protocol_differences) != len(NaPCatalogEntry().protocol_differences)
             or any(type(value) is not str or not value for value in self.protocol_differences)
         ):
             raise ValueError("paper protocol differences must remain explicit")
@@ -722,9 +722,12 @@ def result_from_json(text: object) -> NaPResult:
         raise ValueError("invalid finite, unique-key NaP JSON") from error
     payload = _result_fields(raw, NaPResult)
     catalog = _result_fields(payload["catalog"], NaPCatalogEntry)
-    catalog["protocol_differences"] = _result_sequence(catalog["protocol_differences"], 7)
+    catalog["protocol_differences"] = _result_sequence(
+        catalog["protocol_differences"], len(NaPCatalogEntry().protocol_differences)
+    )
     payload["catalog"] = NaPCatalogEntry(**catalog)
-    payload["profile"] = DiagnosticProfile(**_result_fields(payload["profile"], DiagnosticProfile))
+    profile = DiagnosticProfile(**_result_fields(payload["profile"], DiagnosticProfile))
+    payload["profile"] = profile
     payload["runtime_identity"] = _result_sequence(payload["runtime_identity"], 4)
     arms = _result_sequence(payload["arms"], len(ARM_IDS))
     if len(arms) != len(ARM_IDS):
@@ -736,7 +739,7 @@ def result_from_json(text: object) -> NaPResult:
             if type(arm[name]) is not bool:
                 raise ValueError("NaP arm flags must be exact bools")
         for name in ("task_accuracy", "task_loss", "dead_unit_fraction", "effective_rank"):
-            arm[name] = _result_sequence(arm[name], 16)
+            arm[name] = _result_sequence(arm[name], profile.n_tasks)
         for name in ("initial_hidden_norms", "final_hidden_norms"):
             arm[name] = _result_sequence(arm[name], 2)
         arm["receipt"] = NaPReceipt(**_result_fields(arm["receipt"], NaPReceipt))
