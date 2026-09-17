@@ -75,6 +75,7 @@ from alberta_framework.core.world_model import (
 WORLD_MODEL_ENSEMBLE_CHECKPOINT_SCHEMA = "alberta.world_model_ensemble.v2"
 _WORLD_MODEL_ENSEMBLE_CHECKPOINT_SCHEMA_V1 = "alberta.world_model_ensemble.v1"
 _INT32_MAX = 2**31 - 1
+_ENSEMBLE_PRNG_IMPLEMENTATION = "threefry2x32"
 _ACTUAL_INT_TYPES: tuple[type, ...] = (int, *(np.dtype(code).type for code in "bBhHiIlLqQpP"))
 _ACTUAL_FLOAT_TYPES = frozenset(
     {float, Fraction, *(np.dtype(code).type for code in ("e", "f", "d", "g"))}
@@ -117,7 +118,7 @@ def _require_typed_threefry_key(name: str, value: object) -> Array:
         raise TypeError(f"{name} must be a scalar typed Threefry JAX key") from error
     if (
         trusted.shape != ()
-        or implementation != "threefry2x32"
+        or implementation != _ENSEMBLE_PRNG_IMPLEMENTATION
         or words.shape != (2,)
         or words.dtype != jnp.uint32
     ):
@@ -907,7 +908,9 @@ class WorldModelEnsemble:
         self._config = config
         self._model = ActionConditionedWorldModel(config.model)
         self._signals = LearningSignalEstimator(config.signal_estimator)
-        self._member_state_static_signature = _tree_static_signature(self._model.init(jr.key(0)))
+        self._member_state_static_signature = _tree_static_signature(
+            self._model.init(jr.key(0, impl=_ENSEMBLE_PRNG_IMPLEMENTATION))
+        )
         self._signal_state_static_signature = _tree_static_signature(self._signals.init())
 
     @property
@@ -956,7 +959,14 @@ class WorldModelEnsemble:
         return cls(WorldModelEnsembleConfig.from_config(nested))
 
     def init(self, key: Array) -> WorldModelEnsembleState:
-        """Initialize distinct members and isolated real/replay mask streams."""
+        """Initialize distinct members and isolated real/replay mask streams.
+
+        ``key`` must be a scalar typed Threefry2x32 key. Legacy uint32 key
+        arrays need an explicit ``jr.wrap_key_data(..., impl="threefry2x32")``
+        conversion so their implementation is bound independently of ambient
+        JAX configuration. Invalid initialization keys raise ``TypeError``;
+        invalid keys in an adopted state raise ``ValueError``.
+        """
         key = _require_typed_threefry_key("key", key)
         keys = jr.split(key, self._config.ensemble_size + 1)
         member_states = tuple(
@@ -1002,7 +1012,11 @@ class WorldModelEnsemble:
         measuring it.  Omitting the state measures a freshly initialized
         state, which is the canonical checkpoint budget for this config.
         """
-        measured_state = self.init(jr.key(0)) if state is None else state
+        measured_state = (
+            self.init(jr.key(0, impl=_ENSEMBLE_PRNG_IMPLEMENTATION))
+            if state is None
+            else state
+        )
         self._validate_state_static_contract(measured_state)
 
         member_accounts = tuple(
@@ -1157,10 +1171,13 @@ class WorldModelEnsemble:
             if array.shape != shape or array.dtype != jnp.dtype(dtype):
                 raise ValueError(f"{name} must have shape {shape} and dtype {dtype}")
 
-        _require_typed_threefry_key("state.bootstrap_key", state.bootstrap_key)
-        _require_typed_threefry_key(
-            "state.replay_bootstrap_key", state.replay_bootstrap_key
-        )
+        try:
+            _require_typed_threefry_key("state.bootstrap_key", state.bootstrap_key)
+            _require_typed_threefry_key(
+                "state.replay_bootstrap_key", state.replay_bootstrap_key
+            )
+        except TypeError as error:
+            raise ValueError(str(error)) from error
 
     @staticmethod
     def _signal_state_valid(state: LearningSignalEstimatorState) -> Array:
@@ -2088,7 +2105,11 @@ def load_world_model_ensemble_checkpoint(
     ensemble = WorldModelEnsemble.from_config(config)
     if ensemble.to_config() != config:
         raise ValueError("ensemble checkpoint config is not canonical")
-    key = jr.key(0) if template_key is None else template_key
+    key = (
+        jr.key(0, impl=_ENSEMBLE_PRNG_IMPLEMENTATION)
+        if template_key is None
+        else template_key
+    )
     template = ensemble.init(key)
     if schema == WORLD_MODEL_ENSEMBLE_CHECKPOINT_SCHEMA:
         expected_budget = ensemble.resource_budget(template).to_config()
