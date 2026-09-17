@@ -64,9 +64,10 @@ def test_origin_recursion_class_rejects_before_dumps(
         raise AssertionError("json.dumps ran before the runtime-profile nest gate")
 
     monkeypatch.setattr(json, "dumps", fail_dumps)
+    profile = _nest(16_000)
     started = time.perf_counter()
     with pytest.raises(ValueError, match="nesting depth"):
-        validate_environment_runtime_profile(_nest(16_000))
+        validate_environment_runtime_profile(profile)
     assert time.perf_counter() - started < 0.25
 
 
