@@ -75,7 +75,7 @@ _PRIMARY_RULE: Final = (
     "advance iff mean_delta > 0.005 and all five seed deltas > 0; "
     "reject iff mean_delta <= 0; otherwise inconclusive"
 )
-FROZEN_PLAN_SHA256: Final = "91ed9c58959a50e6f1625a31a15c3bbe6ad8cf0e2c87475767d67355d7d02419"
+FROZEN_PLAN_SHA256: Final = "c3f832cc25d770d33e9027d3c843667b15255ebba1485c34b2098098fce43cff"
 
 
 def _require_authorized() -> None:
@@ -227,13 +227,19 @@ def _plan_payload() -> dict[str, object]:
         "schema": "asi.calibrated-partial-reset.matched-plan.v2",
         "paper_revision": PAPER_REVISION,
         "official_code_revision": OFFICIAL_CODE_REVISION,
+        "upstream_alignment": {
+            "source_path": "continual_learning/optim/cpr.py",
+            "source_git_blob_sha1": "b6bd13bbd0a519b122670c19729df8021d815d0d",
+            "reset_timing": "positive pre-update clock; frequency F first acts at update F+1",
+            "reset_timing_source_lines": [277, 280],
+            "utility_recentering": "ones after each periodic reset",
+            "utility_recentering_source_lines": [256, 263],
+        },
         "adaptation": {
             "workload": "ASI online IPMNIST instead of the paper RL suites",
             "optimizer": "matched float32 SGD with online EMA input normalization",
             "initialization": "retained seed initialization, not fresh reset draws",
             "reset_axis": "all parameters, including biases and output weights",
-            "reset_timing": "positive pre-update clock; frequency F first acts at update F+1",
-            "utility_recentering": "ones after each periodic reset; no recentering in L2/off",
             "utility": "per-parameter absolute-gradient EMA normalized by tensor mean",
         },
         "seeds": list(CAMPAIGN_SEEDS),

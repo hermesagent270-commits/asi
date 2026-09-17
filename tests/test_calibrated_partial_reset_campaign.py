@@ -102,6 +102,18 @@ def test_plan_is_prospective_exact_and_nonpromoting() -> None:
     assert runtime["jax"]["config"]["jax_random_seed_offset"] == 0
 
 
+def test_plan_distinguishes_pinned_upstream_semantics_from_port_adaptations() -> None:
+    plan = lane.frozen_plan()
+    inherited = plan["upstream_alignment"]
+    assert inherited["source_git_blob_sha1"] == "b6bd13bbd0a519b122670c19729df8021d815d0d"
+    assert inherited["source_path"] == "continual_learning/optim/cpr.py"
+    assert "positive pre-update clock" in inherited["reset_timing"]
+    assert inherited["reset_timing_source_lines"] == [277, 280]
+    assert inherited["utility_recentering_source_lines"] == [256, 263]
+    assert "reset_timing" not in plan["adaptation"]
+    assert "utility_recentering" not in plan["adaptation"]
+
+
 def test_public_transaction_is_closed_before_reservation_or_consumer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -111,7 +111,7 @@ local same-runner development ranking, not a paper-level SOTA claim.
   family is a documented supervised protocol port with matched hard-reset,
   L2-Init, utility-free, and mechanism-off controls—not a source reproduction
   or an IPMNIST result. Periodic CPR, hard-reset, and utility-free pulls now
-  use the [pinned source's](https://github.com/LucMc/continual-learning/blob/6fc2af34783159f5dda50c6915dda32c2d443604/continual_learning/optim/cpr.py)
+  use the [pinned source's lines 277–280](https://github.com/LucMc/continual-learning/blob/6fc2af34783159f5dda50c6915dda32c2d443604/continual_learning/optim/cpr.py#L277-L280)
   positive pre-update clock: frequency F first acts
   on update F+1, then every F updates. The port deliberately keeps normalized
   SGD, per-parameter EMA utility, retained initialization, and all-parameter
