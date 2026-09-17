@@ -98,6 +98,7 @@ import platform
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -159,6 +160,7 @@ EMNIST_TOTAL_ROWS = 131_600
 EMNIST_TRAIN_ROWS = 112_800
 EMNIST_TRAIN_PER_CLASS = 2_400
 EMNIST_TEST_PER_CLASS = 400
+_NPY_CACHE_MAX_HEADER_BYTES = 10_000
 
 NONPROMOTING_POLICY: dict[str, object] = {
     "evidence_class": "development_replication_diagnostic",
@@ -821,15 +823,29 @@ def _load_bounded_npy_cache(
         with path.open("rb") as handle:
             version = np.lib.format.read_magic(handle)
             if version == (1, 0):
-                shape, _fortran_order, stored_dtype = (
-                    np.lib.format.read_array_header_1_0(handle)
-                )
+                length_bytes = 2
             elif version in ((2, 0), (3, 0)):
-                shape, _fortran_order, stored_dtype = (
-                    np.lib.format.read_array_header_2_0(handle)
-                )
+                length_bytes = 4
             else:
                 raise ValueError(f"{label} cache uses an unsupported npy version")
+            length_prefix = handle.read(length_bytes)
+            if len(length_prefix) != length_bytes:
+                raise ValueError(f"{label} cache npy header is invalid")
+            header_length = int.from_bytes(length_prefix, "little")
+            if header_length > _NPY_CACHE_MAX_HEADER_BYTES:
+                raise ValueError(f"{label} cache npy header exceeds its byte budget")
+            header = handle.read(header_length)
+            if len(header) != header_length:
+                raise ValueError(f"{label} cache npy header is invalid")
+            header_buffer = BytesIO(length_prefix + header)
+            if version == (1, 0):
+                shape, _fortran_order, stored_dtype = (
+                    np.lib.format.read_array_header_1_0(header_buffer)
+                )
+            else:
+                shape, _fortran_order, stored_dtype = (
+                    np.lib.format.read_array_header_2_0(header_buffer)
+                )
             header_bytes = handle.tell()
             resolved_shape = tuple(int(dimension) for dimension in shape)
             resolved_dtype = np.dtype(stored_dtype)

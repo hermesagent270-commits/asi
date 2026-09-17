@@ -465,6 +465,101 @@ class TestEMNISTArrayCache:
 
         assert pickle_values == [False, False]
 
+    @pytest.mark.parametrize(
+        ("version", "declared_length"),
+        [
+            ((1, 0), 10_001),
+            ((1, 0), 2**16 - 1),
+            ((2, 0), 10_001),
+            ((2, 0), 2**32 - 1),
+            ((3, 0), 10_001),
+            ((3, 0), 2**32 - 1),
+        ],
+    )
+    def test_cache_rejects_excessive_header_length_before_parser(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch, version, declared_length
+    ) -> None:
+        x_path, y_path, meta_path = upgd_label_emnist._npy_cache_paths(tmp_path)
+        length_bytes = 2 if version == (1, 0) else 4
+        x_path.write_bytes(
+            np.lib.format.magic(*version) + declared_length.to_bytes(length_bytes, "little")
+        )
+        np.save(y_path, np.asarray([0], dtype=np.int32))
+        meta_path.write_text("{}", encoding="utf-8")
+
+        def forbidden_parser(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("NumPy must not read an unbounded declared header")
+
+        monkeypatch.setattr(np.lib.format, "read_array_header_1_0", forbidden_parser)
+        monkeypatch.setattr(np.lib.format, "read_array_header_2_0", forbidden_parser)
+        with pytest.raises(ValueError, match="header exceeds its byte budget"):
+            upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+    @pytest.mark.parametrize("version", [(1, 0), (2, 0), (3, 0)])
+    @pytest.mark.parametrize("truncated", ["length", "body"])
+    def test_cache_rejects_truncated_header_before_parser(
+        self, tmp_path, monkeypatch: pytest.MonkeyPatch, version, truncated
+    ) -> None:
+        x_path, y_path, meta_path = upgd_label_emnist._npy_cache_paths(tmp_path)
+        length_bytes = 2 if version == (1, 0) else 4
+        prefix = (100).to_bytes(length_bytes, "little")
+        payload = prefix[:-1] if truncated == "length" else prefix + b"short"
+        x_path.write_bytes(np.lib.format.magic(*version) + payload)
+        np.save(y_path, np.asarray([0], dtype=np.int32))
+        meta_path.write_text("{}", encoding="utf-8")
+
+        def forbidden_parser(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("NumPy must not parse a truncated header")
+
+        monkeypatch.setattr(np.lib.format, "read_array_header_1_0", forbidden_parser)
+        monkeypatch.setattr(np.lib.format, "read_array_header_2_0", forbidden_parser)
+        with pytest.raises(ValueError, match="npy header is invalid"):
+            upgd_label_emnist.load_emnist_balanced_train(tmp_path)
+
+    @pytest.mark.parametrize("version", [(1, 0), (2, 0), (3, 0)])
+    def test_cache_loads_supported_npy_versions(self, tmp_path, version) -> None:
+        x = np.asfortranarray([[0.0, 1.0], [-1.0, 0.5]], dtype=np.float32)
+        y = np.asarray([1, 0], dtype=np.int32)
+        x_path, y_path, meta_path = upgd_label_emnist._npy_cache_paths(tmp_path)
+        for path, array in ((x_path, x), (y_path, y)):
+            with path.open("wb") as handle:
+                np.lib.format.write_array(handle, array, version=version, allow_pickle=False)
+        metadata = self._metadata(x, y)
+        meta_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        loaded_x, loaded_y, loaded_metadata = upgd_label_emnist.load_emnist_balanced_train(
+            tmp_path
+        )
+        np.testing.assert_array_equal(loaded_x, x)
+        np.testing.assert_array_equal(loaded_y, y)
+        assert loaded_x.flags.f_contiguous
+        assert loaded_metadata == metadata
+
+    def test_cache_loads_header_at_byte_budget(self, tmp_path) -> None:
+        x = np.asarray([[0.5]], dtype=np.float32)
+        y = np.asarray([0], dtype=np.int32)
+        x_path, y_path, meta_path = upgd_label_emnist._npy_cache_paths(tmp_path)
+        for path, array in ((x_path, x), (y_path, y)):
+            header = repr(
+                {"descr": array.dtype.str, "fortran_order": False, "shape": array.shape}
+            ).encode("ascii")
+            header = header + b" " * (10_000 - len(header) - 1) + b"\n"
+            path.write_bytes(
+                np.lib.format.magic(2, 0)
+                + len(header).to_bytes(4, "little")
+                + header
+                + array.tobytes()
+            )
+        metadata = self._metadata(x, y)
+        meta_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        loaded_x, loaded_y, loaded_metadata = upgd_label_emnist.load_emnist_balanced_train(
+            tmp_path
+        )
+        np.testing.assert_array_equal(loaded_x, x)
+        np.testing.assert_array_equal(loaded_y, y)
+        assert loaded_metadata == metadata
+
 
 @pytest.mark.parametrize(
     ("mutate", "message"),
