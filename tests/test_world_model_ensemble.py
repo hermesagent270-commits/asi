@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
+from jax.extend import random as extended_random
 
 import alberta_framework as alberta
 import alberta_framework.core as core
@@ -242,6 +243,50 @@ def test_static_state_contract_rejects_noncanonical_bootstrap_keys(
     ensemble = WorldModelEnsemble(_config())
     state = ensemble.init(jr.key(11, impl="threefry2x32"))
     corrupt = state.replace(**{field: key})
+    with pytest.raises(ValueError, match=rf"state.{field} must be a scalar typed Threefry"):
+        ensemble.state_valid(corrupt)
+    with pytest.raises(ValueError, match=rf"state.{field} must be a scalar typed Threefry"):
+        ensemble.resource_budget(corrupt)
+
+
+def _foreign_threefry_alias(alias: str) -> jax.Array:
+    builtin = extended_random.threefry_prng_impl
+
+    def foreign_bits(key: jax.Array, width: int, shape: tuple[int, ...]) -> jax.Array:
+        return jnp.bitwise_not(builtin.random_bits(key, width, shape))
+
+    implementation = extended_random.define_prng_impl(
+        key_shape=builtin.key_shape,
+        seed=builtin.seed,
+        split=builtin.split,
+        random_bits=foreign_bits,
+        fold_in=builtin.fold_in,
+        name="threefry2x32" if alias == "name" else "ensemble_foreign",
+        tag="threefry2x32" if alias == "tag" else "foreign",
+    )
+    canonical = jr.key(17, impl="threefry2x32")
+    foreign = jr.wrap_key_data(jr.key_data(canonical), impl=implementation)
+    assert str(jr.key_impl(foreign)) == str(jr.key_impl(canonical))
+    np.testing.assert_array_equal(jr.key_data(foreign), jr.key_data(canonical))
+    assert not bool(jnp.array_equal(jr.bits(foreign, (8,)), jr.bits(canonical, (8,))))
+    return foreign
+
+
+@pytest.mark.parametrize("alias", ["name", "tag"])
+def test_init_rejects_foreign_implementation_with_threefry_alias(alias: str) -> None:
+    ensemble = WorldModelEnsemble(_config())
+    with pytest.raises(TypeError, match="scalar typed Threefry"):
+        ensemble.init(_foreign_threefry_alias(alias))
+
+
+@pytest.mark.parametrize("alias", ["name", "tag"])
+@pytest.mark.parametrize("field", ["bootstrap_key", "replay_bootstrap_key"])
+def test_state_rejects_foreign_implementation_with_threefry_alias(
+    alias: str, field: str
+) -> None:
+    ensemble = WorldModelEnsemble(_config())
+    state = ensemble.init(jr.key(17, impl="threefry2x32"))
+    corrupt = state.replace(**{field: _foreign_threefry_alias(alias)})
     with pytest.raises(ValueError, match=rf"state.{field} must be a scalar typed Threefry"):
         ensemble.state_valid(corrupt)
     with pytest.raises(ValueError, match=rf"state.{field} must be a scalar typed Threefry"):
