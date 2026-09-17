@@ -20,13 +20,16 @@ def params():
     config = IPMNISTConfig(
         n_tasks=1, task_length=40, input_dim=4, hidden1=3, hidden2=2, n_classes=2
     )
-    return config, init_mlp_params(jax.random.key(3, impl="threefry2x32"), config)
+    values = init_mlp_params(jax.random.key(3, impl="threefry2x32"), config)
+    # The real parameter creator explicitly allocates float32 under both x64
+    # defaults; pin that fact rather than hiding a promoted dtype with a cast.
+    assert all(value.dtype == np.dtype(np.float32) for value in values.values())
+    return config, values
 
 
 @pytest.mark.parametrize(
     "container,dtype,x64,only",
     [
-        ("numpy", "float64", False, None),
         ("numpy", "float64", True, None),
         ("jax", "float64", True, None),
         ("numpy", "float16", False, None),
@@ -72,6 +75,23 @@ def test_admitted_float32_payload_matches_actual_leaf_bytes(container, x64):
             values, NoiseCurvatureConfig(mode="combined", total_steps=40)
         )
         actual = sum(np.asarray(leaf).nbytes for leaf in jax.tree.leaves((values, state)))
+        assert actual == noise_curvature_persistent_bytes(
+            parameter_count=config.parameter_count,
+            input_dim=config.input_dim,
+            control_interval=40,
+        )
+
+
+def test_numpy_float64_conversion_remains_supported_with_x64_disabled():
+    with jax.enable_x64(False):
+        config, values = params()
+        host_values = {name: np.asarray(value, dtype=np.float64) for name, value in values.items()}
+        state = init_noise_curvature_state(
+            host_values, NoiseCurvatureConfig(mode="combined", total_steps=40)
+        )
+        canonical = {name: jnp.asarray(value) for name, value in host_values.items()}
+        assert all(value.dtype == np.dtype(np.float32) for value in canonical.values())
+        actual = sum(np.asarray(leaf).nbytes for leaf in jax.tree.leaves((canonical, state)))
         assert actual == noise_curvature_persistent_bytes(
             parameter_count=config.parameter_count,
             input_dim=config.input_dim,

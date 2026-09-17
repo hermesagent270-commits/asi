@@ -182,11 +182,11 @@ def _validated_params(params: object) -> dict[str, Array]:
         actual_type = type(value)
         if actual_type is not np.ndarray and not issubclass(actual_type, Array):
             raise ValueError(f"params.{name} must be an exact NumPy or JAX array")
-        # Validate before conversion: with x64 disabled, asarray would silently
-        # narrow a NumPy float64 payload and conceal its noncanonical dtype.
-        if value.dtype != np.dtype(np.float32):
-            raise ValueError(f"params.{name} must have the canonical float32 dtype")
         array = jnp.asarray(value)
+        # Bind the execution payload, preserving JAX's existing conversion of
+        # NumPy float64 inputs to float32 when x64 is disabled.
+        if array.dtype != np.dtype(np.float32):
+            raise ValueError(f"params.{name} must convert to the canonical float32 dtype")
         if array.size < 1:
             raise ValueError(f"params.{name} must be a nonempty float32 array")
         if not bool(jnp.all(jnp.isfinite(array))):
@@ -248,8 +248,9 @@ def noise_curvature_persistent_bytes(
 def init_noise_curvature_state(params: object, config: NoiseCurvatureConfig) -> NoiseCurvatureState:
     """Initialize Adam and deterministic block-power directions for float32 parameters.
 
-    Other dtypes are rejected before optimizer/controller allocation so the exact persistent-byte
-    receipt describes the complete admitted parameter/state payload.
+    Parameters must convert to float32 before optimizer/controller allocation
+    so the exact persistent-byte receipt describes the canonical execution
+    parameter/state payload, excluding any original host conversion buffers.
     """
 
     if type(config) is not NoiseCurvatureConfig:
