@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
+from jax.extend import random as extended_random
 
 from alberta_framework.core.recurrent_latent_world_model_ensemble import (
     EVIDENCE_LEVEL,
@@ -162,9 +163,9 @@ def test_initialization_is_distinct_fixed_width_and_exactly_accounted() -> None:
 @pytest.mark.parametrize(
     "key",
     [
-        jr.PRNGKey(7),
+        jr.key_data(jr.key(7, impl="threefry2x32")),
         jr.key(7, impl="rbg"),
-        jr.split(jr.key(7), 1),
+        jr.split(jr.key(7, impl="threefry2x32"), 1),
     ],
 )
 def test_init_rejects_keys_outside_scalar_typed_threefry_contract(key: jax.Array) -> None:
@@ -176,14 +177,14 @@ def test_init_rejects_keys_outside_scalar_typed_threefry_contract(key: jax.Array
 @pytest.mark.parametrize(
     "key",
     [
-        jr.PRNGKey(11),
+        jr.key_data(jr.key(11, impl="threefry2x32")),
         jr.key(11, impl="rbg"),
-        jr.split(jr.key(11), 1),
+        jr.split(jr.key(11, impl="threefry2x32"), 1),
     ],
 )
 def test_static_state_contract_rejects_noncanonical_bootstrap_key(key: jax.Array) -> None:
     model = RecurrentLatentWorldModelEnsemble(_config())
-    state = model.init(jr.key(11)).replace(bootstrap_key=key)
+    state = model.init(jr.key(11, impl="threefry2x32")).replace(bootstrap_key=key)
     with pytest.raises(
         ValueError,
         match="state.bootstrap_key must be a scalar typed threefry2x32 key",
@@ -194,6 +195,118 @@ def test_static_state_contract_rejects_noncanonical_bootstrap_key(key: jax.Array
         match="state.bootstrap_key must be a scalar typed threefry2x32 key",
     ):
         model.resource_budget(state)
+
+
+def _foreign_threefry_alias(alias: str) -> jax.Array:
+    builtin = extended_random.threefry_prng_impl
+
+    def foreign_bits(key: jax.Array, width: int, shape: tuple[int, ...]) -> jax.Array:
+        return jnp.bitwise_not(builtin.random_bits(key, width, shape))
+
+    implementation = extended_random.define_prng_impl(
+        key_shape=builtin.key_shape,
+        seed=builtin.seed,
+        split=builtin.split,
+        random_bits=foreign_bits,
+        fold_in=builtin.fold_in,
+        name="threefry2x32" if alias == "name" else "recurrent_foreign",
+        tag="threefry2x32" if alias == "tag" else "foreign",
+    )
+    canonical = jr.key(17, impl="threefry2x32")
+    foreign = jr.wrap_key_data(jr.key_data(canonical), impl=implementation)
+    assert str(jr.key_impl(foreign)) == str(jr.key_impl(canonical))
+    np.testing.assert_array_equal(jr.key_data(foreign), jr.key_data(canonical))
+    assert not bool(jnp.array_equal(jr.bits(foreign, (8,)), jr.bits(canonical, (8,))))
+    return foreign
+
+
+@pytest.mark.parametrize("alias", ["name", "tag"])
+def test_init_rejects_foreign_implementation_with_threefry_alias(alias: str) -> None:
+    model = RecurrentLatentWorldModelEnsemble(_config())
+    with pytest.raises(ValueError, match="key must be a scalar typed threefry2x32 key"):
+        model.init(_foreign_threefry_alias(alias))
+
+
+@pytest.mark.parametrize("alias", ["name", "tag"])
+def test_state_rejects_foreign_implementation_with_threefry_alias(alias: str) -> None:
+    model = RecurrentLatentWorldModelEnsemble(_config())
+    state = model.init(jr.key(17, impl="threefry2x32"))
+    corrupt = state.replace(bootstrap_key=_foreign_threefry_alias(alias))
+    with pytest.raises(
+        ValueError, match="state.bootstrap_key must be a scalar typed threefry2x32 key"
+    ):
+        model.state_valid(corrupt)
+    with pytest.raises(
+        ValueError, match="state.bootstrap_key must be a scalar typed threefry2x32 key"
+    ):
+        model.resource_budget(corrupt)
+
+
+def test_constructor_ignores_ambient_prng() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        expected = RecurrentLatentWorldModelEnsemble(_config()).init(
+            jr.key(17, impl="threefry2x32")
+        )
+    with jax.default_prng_impl("rbg"):
+        model = RecurrentLatentWorldModelEnsemble(_config())
+        observed = model.init(jr.key(17, impl="threefry2x32"))
+        assert bool(model.state_valid(observed))
+    _assert_tree_equal(observed, expected)
+
+
+def test_default_resource_budget_ignores_ambient_prng() -> None:
+    with jax.default_prng_impl("threefry2x32"):
+        model = RecurrentLatentWorldModelEnsemble(_config())
+        state = model.init(jr.key(17, impl="threefry2x32"))
+        expected = model.resource_budget().to_config()
+    with jax.default_prng_impl("rbg"):
+        assert model.resource_budget().to_config() == expected
+        assert model.resource_budget(state).to_config() == expected
+
+
+def test_checkpoint_restore_and_boundary_continuation_ignore_ambient_prng(
+    tmp_path: Path,
+) -> None:
+    boundary = _transition(
+        observation=BOOTSTRAP,
+        discount=0.0,
+        terminated=True,
+        next_decision_observation=OBSERVATION,
+    )
+    with jax.default_prng_impl("threefry2x32"):
+        model = RecurrentLatentWorldModelEnsemble(_config())
+        initial = model.init(jr.key(17, impl="threefry2x32"))
+        first = model.update(initial, _decision(model, initial), _transition())
+        path = tmp_path / "recurrent-ensemble"
+        save_recurrent_latent_world_model_ensemble_checkpoint(model, first.state, path)
+        expected_boundary = model.update(
+            first.state, _decision(model, first.state, BOOTSTRAP), boundary
+        )
+        expected_next = model.update(
+            expected_boundary.state,
+            _decision(model, expected_boundary.state),
+            _transition(),
+        )
+        expected_budget = model.resource_budget(expected_next.state).to_config()
+    with jax.default_prng_impl("rbg"):
+        restored_model, restored = load_recurrent_latent_world_model_ensemble_checkpoint(path)
+        _assert_tree_equal(restored, first.state)
+        observed_boundary = restored_model.update(
+            restored, _decision(restored_model, restored, BOOTSTRAP), boundary
+        )
+        observed_next = restored_model.update(
+            observed_boundary.state,
+            _decision(restored_model, observed_boundary.state),
+            _transition(),
+        )
+        assert bool(restored_model.state_valid(observed_next.state))
+        assert restored_model.resource_budget(observed_next.state).to_config() == expected_budget
+        assert restored_model.resource_budget().to_config() == expected_budget
+    _assert_tree_equal(observed_boundary, expected_boundary)
+    _assert_tree_equal(observed_next, expected_next)
+    assert bool(observed_boundary.diagnostics.applied)
+    assert bool(observed_boundary.diagnostics.recurrent_reset)
+    assert bool(observed_next.diagnostics.applied)
 
 
 _REAL_SCALAR_FIELDS = (

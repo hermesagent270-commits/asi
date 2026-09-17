@@ -77,6 +77,7 @@ _FLOAT32_MAX = float(np.finfo(np.float32).max)
 _FLOAT32_TINY = float(np.finfo(np.float32).tiny)
 _LOG_TWO_PI = float(math.log(2.0 * math.pi))
 _INT32_MAX = 2**31 - 1
+_RECURRENT_PRNG_IMPLEMENTATION = "threefry2x32"
 _ACTUAL_INT_TYPES = frozenset({int, *(np.dtype(code).type for code in "bBhHiIlLqQpP")})
 
 
@@ -163,24 +164,23 @@ def _array_contract(
     return array
 
 
-def _require_typed_threefry_key(name: str, value: object) -> Array:
+def _require_typed_threefry_key(name: str, value: object, expected_dtype: object) -> Array:
     """Require one scalar typed Threefry key backed by exactly two uint32 words."""
     dtype = getattr(value, "dtype", None)
     if (
         dtype is None
         or getattr(value, "shape", None) != ()
         or not jnp.issubdtype(dtype, jax.dtypes.prng_key)
+        or dtype != expected_dtype
     ):
         raise ValueError(f"{name} must be a scalar typed threefry2x32 key")
     key = cast(Array, value)
     try:
-        implementation = str(jr.key_impl(key))
         words = jr.key_data(key)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{name} must be a scalar typed threefry2x32 key") from error
     if (
-        implementation != "threefry2x32"
-        or words.shape != (2,)
+        words.shape != (2,)
         or words.dtype != jnp.uint32
     ):
         raise ValueError(f"{name} must be a scalar typed threefry2x32 key")
@@ -850,7 +850,10 @@ class RecurrentLatentWorldModelEnsemble:
 
     def __init__(self, config: RecurrentLatentWorldModelEnsembleConfig):
         self._config = config
-        template = self._initial_state(jr.key(0))
+        template_key = jr.key(0, impl=_RECURRENT_PRNG_IMPLEMENTATION)
+        # Typed-key dtype equality binds implementation functions, unlike display names.
+        self._key_dtype = template_key.dtype
+        template = self._initial_state(template_key)
         self._member_signature = _static_signature(template.member_parameters[0])
         self._state_signature = _static_signature(template)
         self._start_signature = _static_signature(self._zero_start_cache())
@@ -914,6 +917,11 @@ class RecurrentLatentWorldModelEnsemble:
     def init(self, key: Array) -> RecurrentLatentWorldModelEnsembleState:
         """Initialize distinct member parameters and an isolated bootstrap key.
 
+        Accepts only scalar typed builtin Threefry2x32 keys. Callers with legacy
+        words must explicitly use
+        ``jr.wrap_key_data(words, impl="threefry2x32")``; this module does not
+        infer their implementation from ambient JAX configuration.
+
         This is a deliberately host-side entry point: it evaluates the drawn
         parameters against ``max_parameter_magnitude`` eagerly and raises, so
         it must not be wrapped in ``jax.jit``; compile the ``start`` /
@@ -936,7 +944,7 @@ class RecurrentLatentWorldModelEnsemble:
         return state
 
     def _initial_state(self, key: Array) -> RecurrentLatentWorldModelEnsembleState:
-        key = _require_typed_threefry_key("key", key)
+        key = _require_typed_threefry_key("key", key, self._key_dtype)
         keys = jr.split(key, self._config.ensemble_size + 1)
         return RecurrentLatentWorldModelEnsembleState(
             member_parameters=tuple(
@@ -959,7 +967,7 @@ class RecurrentLatentWorldModelEnsemble:
             raise TypeError("state must be a RecurrentLatentWorldModelEnsembleState")
         if len(state.member_parameters) != self._config.ensemble_size:
             raise ValueError("state member count does not match ensemble_size")
-        _require_typed_threefry_key("state.bootstrap_key", state.bootstrap_key)
+        _require_typed_threefry_key("state.bootstrap_key", state.bootstrap_key, self._key_dtype)
         _validate_static_signature(state, self._state_signature, name="state")
         for index, parameters in enumerate(state.member_parameters):
             _validate_static_signature(
@@ -1068,7 +1076,9 @@ class RecurrentLatentWorldModelEnsemble:
             # irrelevant since valid=False gates every consumer, but the
             # pytree shape/dtype must match a real member_parameters tuple
             # for jax.lax.cond's branch-structure requirement.
-            owner_parameters=self._initial_state(jr.key(0)).member_parameters,
+            owner_parameters=self._initial_state(
+                jr.key(0, impl=_RECURRENT_PRNG_IMPLEMENTATION)
+            ).member_parameters,
             observation=jnp.zeros((self._config.observation_dim,), dtype=jnp.float32),
             action=jnp.asarray(0, dtype=jnp.int32),
             prediction=self._zero_prediction(),
@@ -1704,7 +1714,9 @@ class RecurrentLatentWorldModelEnsemble:
         state: RecurrentLatentWorldModelEnsembleState | None = None,
     ) -> RecurrentLatentWorldModelResourceBudget:
         """Measure exact logical persistent/cache/result PyTree resources."""
-        measured = self.init(jr.key(0)) if state is None else state
+        measured = (
+            self.init(jr.key(0, impl=_RECURRENT_PRNG_IMPLEMENTATION)) if state is None else state
+        )
         self._validate_state_static(measured)
         if not bool(jax.device_get(self._state_valid(measured))):
             raise ValueError("cannot account an invalid state")
@@ -1826,7 +1838,9 @@ def load_recurrent_latent_world_model_ensemble_checkpoint(
         raise ValueError("checkpoint evidence level is not L0")
     if metadata.get("scientific_promotion_allowed") is not False:
         raise ValueError("checkpoint cannot claim scientific promotion")
-    key = jr.key(0) if template_key is None else template_key
+    key = (
+        jr.key(0, impl=_RECURRENT_PRNG_IMPLEMENTATION) if template_key is None else template_key
+    )
     # The template supplies only the checkpoint's static PyTree contract.  It
     # must not make restoration depend on whether this unrelated random draw
     # happens to fit the configured parameter bound; the persisted state is
