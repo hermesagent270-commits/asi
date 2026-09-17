@@ -65,6 +65,38 @@ nonpromoting path. The CLI itself writes no `outputs/` data.
 .venv/bin/asi-nap-ipmnist --dataset /path/to/mnist.npz --seed 15640
 ```
 
+## Dataset-bound result validation
+
+`result_from_json` restores the bounded v1 JSON emitted by the existing CLI and
+applies its structural validator. Structural acceptance alone does not establish
+that finite curves or a final-state hash follow from the data. To check a saved
+result against its exact dataset, run:
+
+```bash
+.venv/bin/asi-nap-ipmnist --dataset /path/to/mnist.npz --validate /path/to/result.json
+```
+
+This checks current source/runtime identities and the dataset and schedule
+digests before learner dispatch, then independently reexecutes the existing five
+arms from the record's seed and profile. Every result field must match exactly
+except each arm's `elapsed_ns`, which remains telemetry. The record is read-only;
+successful validation prints a versioned validation receipt with input-file and
+canonical-result hashes, fresh per-arm resource receipts, aggregate validation
+steps/queries/updates, runtime configuration and wall-time telemetry including
+dataset I/O. These costs describe the additional validation pass. They are not
+hardware peak-memory or original-execution attestation. The Python entry point
+`validate_result_with_dataset` returns that fresh reexecution after comparison.
+
+This closes the dataset-bound non-timing reexecution gap from #1564's integration
+audit for the existing bounded diagnostic. Public seeds 15640–15643 remain
+consumed development roots. It issues no prospective seed roster or campaign.
+Canonical OpenML campaign identity, a fresh globally unused namespace, complete
+campaign/runtime/dependency qualification, a frozen paired primary question,
+reservation/publication/retention transactions and a reviewed hard execution
+transition remain required before a new prospective matched campaign. The
+validation receipt stays permanently nonpromoting; paper-parity gates remain
+closed.
+
 ## Paper protocol differences and closed gates
 
 The main supervised experiment uses CIFAR-10, 20 million steps, and 200 random
