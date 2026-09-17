@@ -19,7 +19,7 @@ import time
 import zipfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import IO, Literal, SupportsIndex, cast
+from typing import IO, Any, Literal, SupportsIndex, cast
 
 import jax
 import jax.numpy as jnp
@@ -72,6 +72,7 @@ ArmID = Literal[
     "nap",
 ]
 _NORMALIZATION_EPSILON = 1e-5
+_MAX_RESULT_BYTES = 1 << 20
 _PRNG_IMPLEMENTATION = "threefry2x32"
 
 
@@ -679,6 +680,137 @@ def _json_result(result: NaPResult) -> str:
     )
 
 
+def _result_fields(value: object, record_type: type[Any]) -> dict[str, Any]:
+    fields = {field.name for field in dataclasses.fields(record_type)}
+    if type(value) is not dict or set(value) != fields:
+        raise ValueError(f"{record_type.__name__} JSON fields differ from the schema")
+    return dict(cast(dict[str, Any], value))
+
+
+def _result_sequence(value: object, limit: int) -> tuple[Any, ...]:
+    if type(value) is not list or not 1 <= len(value) <= limit:
+        raise ValueError("NaP JSON sequence has an invalid type or length")
+    return tuple(value)
+
+
+def _unique_result_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate NaP JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def result_from_json(text: object) -> NaPResult:
+    """Restore the bounded v1 payload and apply current structural validation.
+
+    Use ``validate_result_with_dataset`` to check whether its numeric fields
+    actually follow from the claimed dataset and execution, rather than merely
+    satisfying the schema. This codec does not attest execution.
+    """
+    if (
+        type(text) is not str
+        or len(text) > _MAX_RESULT_BYTES
+        or len(text.encode("utf-8")) > _MAX_RESULT_BYTES
+    ):
+        raise ValueError("NaP result must be a JSON string of at most 1 MiB")
+    try:
+        raw = json.loads(text, object_pairs_hook=_unique_result_object)
+        json.dumps(raw, allow_nan=False)
+    except (ValueError, RecursionError) as error:
+        raise ValueError("invalid finite, unique-key NaP JSON") from error
+    payload = _result_fields(raw, NaPResult)
+    catalog = _result_fields(payload["catalog"], NaPCatalogEntry)
+    catalog["protocol_differences"] = _result_sequence(catalog["protocol_differences"], 7)
+    payload["catalog"] = NaPCatalogEntry(**catalog)
+    payload["profile"] = DiagnosticProfile(**_result_fields(payload["profile"], DiagnosticProfile))
+    payload["runtime_identity"] = _result_sequence(payload["runtime_identity"], 4)
+    arms = _result_sequence(payload["arms"], len(ARM_IDS))
+    if len(arms) != len(ARM_IDS):
+        raise ValueError("NaP JSON arm matrix is incomplete")
+    restored = []
+    for item in arms:
+        arm = _result_fields(item, NaPArmResult)
+        for name in ("normalization_enabled", "projection_enabled"):
+            if type(arm[name]) is not bool:
+                raise ValueError("NaP arm flags must be exact bools")
+        for name in ("task_accuracy", "task_loss", "dead_unit_fraction", "effective_rank"):
+            arm[name] = _result_sequence(arm[name], 16)
+        for name in ("initial_hidden_norms", "final_hidden_norms"):
+            arm[name] = _result_sequence(arm[name], 2)
+        arm["receipt"] = NaPReceipt(**_result_fields(arm["receipt"], NaPReceipt))
+        restored.append(NaPArmResult(**arm))
+    payload["arms"] = tuple(restored)
+    return validate_result(NaPResult(**payload))
+
+
+def _non_timing_result_json(value: NaPResult) -> str:
+    arms = tuple(
+        dataclasses.replace(arm, receipt=dataclasses.replace(arm.receipt, elapsed_ns=0))
+        for arm in value.arms
+    )
+    return _json_result(dataclasses.replace(value, arms=arms))
+
+
+def validate_result_with_dataset(value: object, images: object, labels: object) -> NaPResult:
+    """Independently reexecute and compare every field except elapsed time.
+
+    Dataset and schedule bindings must match before any learner dispatch.
+    Success returns the fresh reexecution, including its observed per-arm
+    receipts; it does not promote the result or authenticate its original run.
+    """
+    stored = validate_result(value)
+    data, targets = _arrays(images, labels)
+    if _dataset_sha(data, targets) != stored.dataset_sha256:
+        raise ValueError("NaP dataset does not match the retained result")
+    if data.shape[0] < stored.profile.examples_per_task:
+        raise ValueError("dataset has too few examples for the retained profile")
+    tasks = _schedule(data, targets, stored.profile, stored.seed)
+    if _schedule_sha(tasks) != stored.schedule_sha256:
+        raise ValueError("NaP schedule does not match the retained result")
+    del tasks
+    replayed = run_comparator(data, targets, seed=stored.seed, profile_id=stored.profile_id)
+    if _non_timing_result_json(stored) != _non_timing_result_json(replayed):
+        raise ValueError("NaP result does not exactly replay from the bound dataset")
+    return replayed
+
+
+def _validation_payload(
+    stored: NaPResult, replayed: NaPResult, input_bytes: bytes, elapsed_ns: int
+) -> dict[str, object]:
+    receipts = [dataclasses.asdict(arm.receipt) for arm in replayed.arms]
+    return {
+        "schema": "asi.nap_ipmnist.dataset-validation.v1",
+        "validated": True,
+        "classification": "dataset_bound_development_reexecution",
+        "development_only": True,
+        "scientific_promotion_allowed": False,
+        "paper_parity_claimed": False,
+        "input_file_sha256": hashlib.sha256(input_bytes).hexdigest(),
+        "canonical_result_sha256": hashlib.sha256(_json_result(stored).encode()).hexdigest(),
+        "dataset_sha256": replayed.dataset_sha256,
+        "schedule_sha256": replayed.schedule_sha256,
+        "validator_source_sha256": replayed.source_sha256,
+        "runtime_identity": list(replayed.runtime_identity),
+        "jax_default_prng_impl": jax.config.jax_default_prng_impl,
+        "jax_enable_x64": jax.config.jax_enable_x64,
+        "seed": replayed.seed,
+        "profile_id": replayed.profile_id,
+        "validation_receipt": {
+            "arm_reexecutions": len(receipts),
+            "data_steps": sum(receipt["data_steps"] for receipt in receipts),
+            "model_queries": sum(receipt["model_queries"] for receipt in receipts),
+            "parameter_updates": sum(receipt["parameter_updates"] for receipt in receipts),
+            "per_arm_receipts": receipts,
+            "elapsed_ns_including_dataset_io": elapsed_ns,
+            "timing_telemetry_only": True,
+            "scope": "fresh sequential arm reexecution; logical counts, not hardware peak memory",
+        },
+        "attestation": "consistency reexecution; no authenticated original-execution proof",
+    }
+
+
 def _npy_header(buffer: IO[bytes]) -> tuple[tuple[int, ...], np.dtype]:
     try:
         version = np.lib.format.read_magic(buffer)
@@ -739,7 +871,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--dataset", type=Path)
     parser.add_argument("--seed", type=int, default=FROZEN_SEEDS[0])
     parser.add_argument("--profile", choices=tuple(PROFILES), default="contract-smoke")
-    parser.add_argument("--catalog", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--catalog", action="store_true")
+    mode.add_argument("--validate", type=Path, metavar="RESULT_JSON")
     args = parser.parse_args(argv)
     if args.catalog:
         catalog = NaPCatalogEntry()
@@ -757,6 +891,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.dataset is None:
         parser.error("--dataset is required unless --catalog is used")
+    started = time.perf_counter_ns()
+    input_bytes: bytes | None = None
+    stored: NaPResult | None = None
+    if args.validate is not None:
+        if args.validate.is_symlink() or not args.validate.is_file():
+            raise ValueError("NaP result JSON must be a bounded regular file")
+        with args.validate.open("rb") as result_file:
+            input_bytes = result_file.read(_MAX_RESULT_BYTES + 1)
+        if len(input_bytes) > _MAX_RESULT_BYTES:
+            raise ValueError("NaP result JSON exceeds 1 MiB")
+        stored = result_from_json(input_bytes.decode("utf-8"))
     if (
         args.dataset.is_symlink()
         or not args.dataset.is_file()
@@ -767,6 +912,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     with np.load(args.dataset, allow_pickle=False) as payload:
         if set(payload.files) != {"images", "labels"}:
             raise ValueError("dataset NPZ must contain exactly images and labels")
+        if stored is not None:
+            replayed = validate_result_with_dataset(stored, payload["images"], payload["labels"])
+            assert input_bytes is not None
+            report = _validation_payload(
+                stored, replayed, input_bytes, time.perf_counter_ns() - started
+            )
+            print(json.dumps(report, allow_nan=False, sort_keys=True, separators=(",", ":")))
+            return 0
         result = run_comparator(
             payload["images"], payload["labels"], seed=args.seed, profile_id=args.profile
         )
