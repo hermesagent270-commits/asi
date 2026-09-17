@@ -102,6 +102,48 @@ def test_json_codec_rejects_malformed_records(case, fault):
         nap.result_from_json(encoded)
 
 
+def test_profile_curve_bound_rejects_before_arm_construction(case, monkeypatch):
+    result, _, _ = case
+    payload = json.loads(nap._json_result(result))
+    for name in ("task_accuracy", "task_loss", "dead_unit_fraction", "effective_rank"):
+        payload["arms"][0][name].append(payload["arms"][0][name][-1])
+
+    def forbidden(_self):
+        pytest.fail("a curve larger than its profile reached arm construction")
+
+    monkeypatch.setattr(nap.NaPArmResult, "__post_init__", forbidden)
+    with pytest.raises(ValueError, match="sequence"):
+        nap.result_from_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("profile_id", "no-such-profile"),
+        ("profile_id", ["contract-smoke"]),
+        ("seed", "x"),
+        ("seed", True),
+        ("seed", 0),
+        ("profile", "registry-mismatch"),
+    ],
+)
+def test_json_admission_rejects_invalid_profile_or_seed(case, monkeypatch, field, value):
+    result, _, _ = case
+    payload = json.loads(nap._json_result(result))
+    if field == "profile":
+        payload["profile"]["n_tasks"] += 1
+    else:
+        payload[field] = value
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid JSON admission dispatched a learner")
+
+    monkeypatch.setattr(nap, "run_comparator", forbidden)
+    with pytest.raises(ValueError):
+        restored = nap.result_from_json(json.dumps(payload))
+        nap.validate_result_with_dataset(restored, None, None)
+
+
 @pytest.mark.parametrize("forged", [False, True])
 def test_cli_reloads_and_validates_saved_result(case, tmp_path, capsys, forged):
     result, images, labels = case
