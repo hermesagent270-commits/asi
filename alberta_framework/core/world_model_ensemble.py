@@ -105,20 +105,22 @@ def _validated_config_float(name: str, value: object, **bounds: Any) -> float:
     return validated_float32_scalar(name, value, **bounds)
 
 
-def _require_typed_threefry_key(name: str, value: object) -> Array:
+def _require_typed_threefry_key(name: str, value: object, expected_dtype: object) -> Array:
     """Require one scalar typed Threefry key with exactly two uint32 words."""
     dtype = getattr(value, "dtype", None)
-    if dtype is None or not jnp.issubdtype(dtype, jax.dtypes.prng_key):
+    if (
+        dtype is None
+        or not jnp.issubdtype(dtype, jax.dtypes.prng_key)
+        or dtype != expected_dtype
+    ):
         raise TypeError(f"{name} must be a scalar typed Threefry JAX key")
     trusted = cast(Array, value)
     try:
-        implementation = str(jr.key_impl(trusted))
         words = jr.key_data(trusted)
     except (TypeError, ValueError) as error:
         raise TypeError(f"{name} must be a scalar typed Threefry JAX key") from error
     if (
         trusted.shape != ()
-        or implementation != _ENSEMBLE_PRNG_IMPLEMENTATION
         or words.shape != (2,)
         or words.dtype != jnp.uint32
     ):
@@ -908,8 +910,11 @@ class WorldModelEnsemble:
         self._config = config
         self._model = ActionConditionedWorldModel(config.model)
         self._signals = LearningSignalEstimator(config.signal_estimator)
+        template_key = jr.key(0, impl=_ENSEMBLE_PRNG_IMPLEMENTATION)
+        # Typed-key dtype equality binds implementation functions, unlike display names.
+        self._key_dtype = template_key.dtype
         self._member_state_static_signature = _tree_static_signature(
-            self._model.init(jr.key(0, impl=_ENSEMBLE_PRNG_IMPLEMENTATION))
+            self._model.init(template_key)
         )
         self._signal_state_static_signature = _tree_static_signature(self._signals.init())
 
@@ -967,7 +972,7 @@ class WorldModelEnsemble:
         JAX configuration. Invalid initialization keys raise ``TypeError``;
         invalid keys in an adopted state raise ``ValueError``.
         """
-        key = _require_typed_threefry_key("key", key)
+        key = _require_typed_threefry_key("key", key, self._key_dtype)
         keys = jr.split(key, self._config.ensemble_size + 1)
         member_states = tuple(
             self._model.init(keys[index]) for index in range(self._config.ensemble_size)
@@ -1172,9 +1177,11 @@ class WorldModelEnsemble:
                 raise ValueError(f"{name} must have shape {shape} and dtype {dtype}")
 
         try:
-            _require_typed_threefry_key("state.bootstrap_key", state.bootstrap_key)
             _require_typed_threefry_key(
-                "state.replay_bootstrap_key", state.replay_bootstrap_key
+                "state.bootstrap_key", state.bootstrap_key, self._key_dtype
+            )
+            _require_typed_threefry_key(
+                "state.replay_bootstrap_key", state.replay_bootstrap_key, self._key_dtype
             )
         except TypeError as error:
             raise ValueError(str(error)) from error
