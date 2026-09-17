@@ -1,0 +1,1315 @@
+{
+  "artifact_bindings": [
+    {
+      "file_sha256": "cfc0eb87ca9c59b326f8c455d36d409a5498eeb6024febe1891a411d1b0fb9dd",
+      "path": "development_result_main_f3d32c45_py3123_replay.v2.json",
+      "record_count": 12,
+      "records_sha256": "4195b4d6379e6cfb54cc13de341a038e41945a2dae36d2d0b1a05091d189564c"
+    },
+    {
+      "file_sha256": "dbd80ae94bc4b77028d8f7372fb59a71ce68a46470dcf6113e2f97eda1b2be69",
+      "path": "development_result_pr2257.v2.json",
+      "record_count": 12,
+      "records_sha256": "4195b4d6379e6cfb54cc13de341a038e41945a2dae36d2d0b1a05091d189564c"
+    },
+    {
+      "file_sha256": "03b5ecf26c6790b5b1b16d639895eba40c4819d12d29d0eb26a311e390f42077",
+      "path": "development_result_pr2257_review.v2.json",
+      "record_count": 12,
+      "records_sha256": "4195b4d6379e6cfb54cc13de341a038e41945a2dae36d2d0b1a05091d189564c"
+    }
+  ],
+  "attestation": "consistency and observed local validation; no authenticated execution proof",
+  "canonicalization": "UTF-8 json.dumps(sort_keys=True,separators=(',',':'),allow_nan=False)",
+  "cross_seed_coincidences": [
+    {
+      "arm": "diverse_archive",
+      "axis": "initial_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "diverse_archive",
+      "axis": "final_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "diverse_archive",
+      "axis": "action_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "00bf9a49e99e0198beb856113d861431fba75669583d39795059b9050b0935cb"
+        }
+      ]
+    },
+    {
+      "arm": "diverse_archive",
+      "axis": "observation_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "ee6de3e534ce5f0948384f361c2401d4168ccf0dc7978a6c0de8d9c1e819ae26"
+        }
+      ]
+    },
+    {
+      "arm": "diverse_archive",
+      "axis": "reward_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586001,
+            1586002
+          ],
+          "sha256": "e9621c3e95dd3f80f126f46c1488513c0140ab542ca1864ca0c48975ef35b2ec"
+        }
+      ]
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis": "initial_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis": "final_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis": "action_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "6b3f2abccb551128cbe44ad95203c767942fb8d6fd4f0a13970949053c0d56f5"
+        }
+      ]
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis": "observation_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "cab63d16e6ed3dc8784040f36a0ea2889d0ae584084e86da685eb037ea9ff696"
+        }
+      ]
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis": "reward_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586001,
+            1586002
+          ],
+          "sha256": "c414920852b6ba11357e71e6ba41f888b521bcd744864769aca613acceae79ec"
+        }
+      ]
+    },
+    {
+      "arm": "mechanism_off",
+      "axis": "initial_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "mechanism_off",
+      "axis": "final_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "mechanism_off",
+      "axis": "action_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "6b3f2abccb551128cbe44ad95203c767942fb8d6fd4f0a13970949053c0d56f5"
+        }
+      ]
+    },
+    {
+      "arm": "mechanism_off",
+      "axis": "observation_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "cab63d16e6ed3dc8784040f36a0ea2889d0ae584084e86da685eb037ea9ff696"
+        }
+      ]
+    },
+    {
+      "arm": "mechanism_off",
+      "axis": "reward_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586001,
+            1586002
+          ],
+          "sha256": "c414920852b6ba11357e71e6ba41f888b521bcd744864769aca613acceae79ec"
+        }
+      ]
+    },
+    {
+      "arm": "one_model",
+      "axis": "initial_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "one_model",
+      "axis": "final_policy_sha256",
+      "equal_hash_groups": []
+    },
+    {
+      "arm": "one_model",
+      "axis": "action_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "510b7f41d93a820ed3f13bbf42ac5e16f7e036b692f46970f70668cd86d31b12"
+        }
+      ]
+    },
+    {
+      "arm": "one_model",
+      "axis": "observation_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586002
+          ],
+          "sha256": "e27eb54d639e10cd1ffd334e1076da3729a433481aa87fa3fd165a03cbd84a02"
+        }
+      ]
+    },
+    {
+      "arm": "one_model",
+      "axis": "reward_sha256",
+      "equal_hash_groups": [
+        {
+          "seeds": [
+            1586000,
+            1586001,
+            1586002
+          ],
+          "sha256": "0bc0eb4f5bdecc2105a39486b9c59cb9e6127791cc683dfccf83477f7c133d15"
+        }
+      ]
+    }
+  ],
+  "development_only": true,
+  "record_comparisons": [
+    {
+      "arm": "diverse_archive",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "8f19cef01e62dd910aa3c67989dd63a48111fcb9f80439bba12a58fae6cf7719",
+      "replay_record_sha256": "8f19cef01e62dd910aa3c67989dd63a48111fcb9f80439bba12a58fae6cf7719",
+      "seed": 1586000
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "9aada9502ad3c2a030252fe52194dba0911660ae30b2b8a043d744d147ac17bb",
+      "replay_record_sha256": "9aada9502ad3c2a030252fe52194dba0911660ae30b2b8a043d744d147ac17bb",
+      "seed": 1586000
+    },
+    {
+      "arm": "mechanism_off",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "ea5ded22cd26da866165771bed5a267690187121d79d8f664f42fdefafc82a94",
+      "replay_record_sha256": "ea5ded22cd26da866165771bed5a267690187121d79d8f664f42fdefafc82a94",
+      "seed": 1586000
+    },
+    {
+      "arm": "one_model",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "bf2d059b79d5ca139eba5d335127b57dab2d90a1327af7e1b58e83c1f605adf1",
+      "replay_record_sha256": "bf2d059b79d5ca139eba5d335127b57dab2d90a1327af7e1b58e83c1f605adf1",
+      "seed": 1586000
+    },
+    {
+      "arm": "diverse_archive",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "a7f05f94c77c20ce5b377080b39bdee9370bebfd2fd39c426b77990b57bad1e3",
+      "replay_record_sha256": "a7f05f94c77c20ce5b377080b39bdee9370bebfd2fd39c426b77990b57bad1e3",
+      "seed": 1586001
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "115c873486e2f4251d82ec68d90448904100e84505325412958fb9eded71c5de",
+      "replay_record_sha256": "115c873486e2f4251d82ec68d90448904100e84505325412958fb9eded71c5de",
+      "seed": 1586001
+    },
+    {
+      "arm": "mechanism_off",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "657d6a52123a45393f803a5f36fe7301d9d83e506c42ff56fd5dc5e5d60172ed",
+      "replay_record_sha256": "657d6a52123a45393f803a5f36fe7301d9d83e506c42ff56fd5dc5e5d60172ed",
+      "seed": 1586001
+    },
+    {
+      "arm": "one_model",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "3bdde3e197ba45aacb56e57b4c8a1df8e7fe4f64f3005b923847c3c48fc01bea",
+      "replay_record_sha256": "3bdde3e197ba45aacb56e57b4c8a1df8e7fe4f64f3005b923847c3c48fc01bea",
+      "seed": 1586001
+    },
+    {
+      "arm": "diverse_archive",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "c4d514bea885a8bf3a7647dfb43528b0bcf9c21d249b6c17c1244732ac44b1ab",
+      "replay_record_sha256": "c4d514bea885a8bf3a7647dfb43528b0bcf9c21d249b6c17c1244732ac44b1ab",
+      "seed": 1586002
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "3d4d26a5718ccbb15585f7694976a1ec36b0b08030ec6ff5825393117ff96ae9",
+      "replay_record_sha256": "3d4d26a5718ccbb15585f7694976a1ec36b0b08030ec6ff5825393117ff96ae9",
+      "seed": 1586002
+    },
+    {
+      "arm": "mechanism_off",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "3f10e13d6954680e41e2414922c1950668d3c2b0318c120c1f7cf68128916597",
+      "replay_record_sha256": "3f10e13d6954680e41e2414922c1950668d3c2b0318c120c1f7cf68128916597",
+      "seed": 1586002
+    },
+    {
+      "arm": "one_model",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257.v2.json",
+      "historical_record_sha256": "40f6038b90e54adf7f0f274eb7c857cd5004c91fe911f99a5ef66e64637c371f",
+      "replay_record_sha256": "40f6038b90e54adf7f0f274eb7c857cd5004c91fe911f99a5ef66e64637c371f",
+      "seed": 1586002
+    },
+    {
+      "arm": "diverse_archive",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "8f19cef01e62dd910aa3c67989dd63a48111fcb9f80439bba12a58fae6cf7719",
+      "replay_record_sha256": "8f19cef01e62dd910aa3c67989dd63a48111fcb9f80439bba12a58fae6cf7719",
+      "seed": 1586000
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "9aada9502ad3c2a030252fe52194dba0911660ae30b2b8a043d744d147ac17bb",
+      "replay_record_sha256": "9aada9502ad3c2a030252fe52194dba0911660ae30b2b8a043d744d147ac17bb",
+      "seed": 1586000
+    },
+    {
+      "arm": "mechanism_off",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "ea5ded22cd26da866165771bed5a267690187121d79d8f664f42fdefafc82a94",
+      "replay_record_sha256": "ea5ded22cd26da866165771bed5a267690187121d79d8f664f42fdefafc82a94",
+      "seed": 1586000
+    },
+    {
+      "arm": "one_model",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "bf2d059b79d5ca139eba5d335127b57dab2d90a1327af7e1b58e83c1f605adf1",
+      "replay_record_sha256": "bf2d059b79d5ca139eba5d335127b57dab2d90a1327af7e1b58e83c1f605adf1",
+      "seed": 1586000
+    },
+    {
+      "arm": "diverse_archive",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "a7f05f94c77c20ce5b377080b39bdee9370bebfd2fd39c426b77990b57bad1e3",
+      "replay_record_sha256": "a7f05f94c77c20ce5b377080b39bdee9370bebfd2fd39c426b77990b57bad1e3",
+      "seed": 1586001
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "115c873486e2f4251d82ec68d90448904100e84505325412958fb9eded71c5de",
+      "replay_record_sha256": "115c873486e2f4251d82ec68d90448904100e84505325412958fb9eded71c5de",
+      "seed": 1586001
+    },
+    {
+      "arm": "mechanism_off",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "657d6a52123a45393f803a5f36fe7301d9d83e506c42ff56fd5dc5e5d60172ed",
+      "replay_record_sha256": "657d6a52123a45393f803a5f36fe7301d9d83e506c42ff56fd5dc5e5d60172ed",
+      "seed": 1586001
+    },
+    {
+      "arm": "one_model",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "3bdde3e197ba45aacb56e57b4c8a1df8e7fe4f64f3005b923847c3c48fc01bea",
+      "replay_record_sha256": "3bdde3e197ba45aacb56e57b4c8a1df8e7fe4f64f3005b923847c3c48fc01bea",
+      "seed": 1586001
+    },
+    {
+      "arm": "diverse_archive",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "c4d514bea885a8bf3a7647dfb43528b0bcf9c21d249b6c17c1244732ac44b1ab",
+      "replay_record_sha256": "c4d514bea885a8bf3a7647dfb43528b0bcf9c21d249b6c17c1244732ac44b1ab",
+      "seed": 1586002
+    },
+    {
+      "arm": "fixed_snapshot",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "3d4d26a5718ccbb15585f7694976a1ec36b0b08030ec6ff5825393117ff96ae9",
+      "replay_record_sha256": "3d4d26a5718ccbb15585f7694976a1ec36b0b08030ec6ff5825393117ff96ae9",
+      "seed": 1586002
+    },
+    {
+      "arm": "mechanism_off",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "3f10e13d6954680e41e2414922c1950668d3c2b0318c120c1f7cf68128916597",
+      "replay_record_sha256": "3f10e13d6954680e41e2414922c1950668d3c2b0318c120c1f7cf68128916597",
+      "seed": 1586002
+    },
+    {
+      "arm": "one_model",
+      "axis_matches": {
+        "action_sha256": true,
+        "archive_entry_count": true,
+        "arm": true,
+        "final_policy_sha256": true,
+        "initial_policy_sha256": true,
+        "mean_reward": true,
+        "observation_sha256": true,
+        "resource_receipt.action_bytes": true,
+        "resource_receipt.active_policy_persistent_bytes": true,
+        "resource_receipt.archive_entry_queries": true,
+        "resource_receipt.archive_persistent_bytes": true,
+        "resource_receipt.descriptor_model_persistent_bytes": true,
+        "resource_receipt.descriptor_model_queries": true,
+        "resource_receipt.environment_state_persistent_bytes": true,
+        "resource_receipt.environment_steps": true,
+        "resource_receipt.mechanism_off_anchor_bytes": true,
+        "resource_receipt.observation_bytes": true,
+        "resource_receipt.observations_consumed": true,
+        "resource_receipt.policy_queries": true,
+        "resource_receipt.policy_updates": true,
+        "resource_receipt.reward_bytes": true,
+        "resource_receipt.task_boundary_disclosures": true,
+        "resource_receipt.timing": true,
+        "resource_receipt.timing_policy": true,
+        "reward_sha256": true,
+        "reward_sum": true,
+        "seed": true
+      },
+      "historical_path": "development_result_pr2257_review.v2.json",
+      "historical_record_sha256": "40f6038b90e54adf7f0f274eb7c857cd5004c91fe911f99a5ef66e64637c371f",
+      "replay_record_sha256": "40f6038b90e54adf7f0f274eb7c857cd5004c91fe911f99a5ef66e64637c371f",
+      "seed": 1586002
+    }
+  ],
+  "schema": "asi.telapa_review_reconciliation.v1",
+  "scientific_promotion_allowed": false,
+  "seed_initialization": [
+    {
+      "initial_greedy_actions_by_state": [
+        0,
+        0
+      ],
+      "initial_policy_sha256": "ab87319abe1321e21d60ca98a86277f2c6e465a8847e8fb3837fed57f631b677",
+      "initial_state_index": 1,
+      "seed": 1586000
+    },
+    {
+      "initial_greedy_actions_by_state": [
+        1,
+        1
+      ],
+      "initial_policy_sha256": "731be35f1ba59cd7683ee06926ad5e78a2358c8cb541033bea6700dc9b2ceb6e",
+      "initial_state_index": 0,
+      "seed": 1586001
+    },
+    {
+      "initial_greedy_actions_by_state": [
+        0,
+        0
+      ],
+      "initial_policy_sha256": "5a2840542a1072c3ab9683ca16a9097db970aa237f01b3836c2f836eecb1582a",
+      "initial_state_index": 1,
+      "seed": 1586002
+    }
+  ],
+  "validator": {
+    "audit_source_sha256": "4d753c37c2652643339284bd053ea0e45fa67d7e4cf036c67daaaafeef722a04",
+    "command": "PYTHONPATH=. /root/asi/.venv/bin/python outputs/telapa_qualification/review_audit.v1.py --check",
+    "exit_status": 0,
+    "historical_rejections": [
+      {
+        "accepted": false,
+        "error": "result identity differs from the current source/runtime/registries",
+        "identity_differences": {
+          "dependency_source_sha256": {
+            "historical": [
+              [
+                "alberta_framework.benchmarks.development_provenance",
+                "0e6a12d0fe2f0096e0038772ae7d615ea8c60ae5fef71f851198e45ccce8fe54"
+              ],
+              [
+                "alberta_framework.core.policy_archive",
+                "52a2d98cab0c374c07cee3dc29cbe52d478db2507223d86d0216d60b8ea9e5d1"
+              ],
+              [
+                "alberta_framework.streams.closed_loop",
+                "3b17a932fb24f3149bd250f85202c1a2ec5508bc18900849b03098847b380b46"
+              ]
+            ],
+            "replay": [
+              [
+                "alberta_framework.benchmarks.development_provenance",
+                "0e6a12d0fe2f0096e0038772ae7d615ea8c60ae5fef71f851198e45ccce8fe54"
+              ],
+              [
+                "alberta_framework.core.policy_archive",
+                "dba1dd9fc19a1157b7ad291108bd7804200adc1abfc73695f2d794c4ab9b1fb3"
+              ],
+              [
+                "alberta_framework.streams.closed_loop",
+                "9a308dfebd6e4fa319c7cb3b18b0b8f79350b7bb6e904729bd6756094ab46a85"
+              ]
+            ]
+          },
+          "dependency_versions": {
+            "historical": [
+              [
+                "jax",
+                "0.11.1"
+              ],
+              [
+                "numpy",
+                "2.5.2"
+              ]
+            ],
+            "replay": [
+              [
+                "jax",
+                "0.11.0"
+              ],
+              [
+                "numpy",
+                "2.5.1"
+              ]
+            ]
+          }
+        },
+        "identity_field_matches": {
+          "dependency_source_sha256": false,
+          "dependency_versions": false,
+          "lane_source_sha256": true,
+          "paper_registry_sha256": true,
+          "runtime_identity": true,
+          "workload_registry_sha256": true
+        },
+        "path": "development_result_pr2257.v2.json"
+      },
+      {
+        "accepted": false,
+        "error": "result identity differs from the current source/runtime/registries",
+        "identity_differences": {
+          "runtime_identity": {
+            "historical": [
+              [
+                "jax_backend",
+                "cpu"
+              ],
+              [
+                "machine",
+                "x86_64"
+              ],
+              [
+                "python_implementation",
+                "cpython"
+              ],
+              [
+                "python_version",
+                "3.12.14"
+              ],
+              [
+                "system",
+                "Linux"
+              ]
+            ],
+            "replay": [
+              [
+                "jax_backend",
+                "cpu"
+              ],
+              [
+                "machine",
+                "x86_64"
+              ],
+              [
+                "python_implementation",
+                "cpython"
+              ],
+              [
+                "python_version",
+                "3.12.3"
+              ],
+              [
+                "system",
+                "Linux"
+              ]
+            ]
+          }
+        },
+        "identity_field_matches": {
+          "dependency_source_sha256": true,
+          "dependency_versions": true,
+          "lane_source_sha256": true,
+          "paper_registry_sha256": true,
+          "runtime_identity": false,
+          "workload_registry_sha256": true
+        },
+        "path": "development_result_pr2257_review.v2.json"
+      }
+    ],
+    "jax_default_prng_impl": "threefry2x32",
+    "jax_enable_x64": false,
+    "records_reexecuted": 12,
+    "validated_identity": {
+      "dependency_source_sha256": [
+        [
+          "alberta_framework.benchmarks.development_provenance",
+          "0e6a12d0fe2f0096e0038772ae7d615ea8c60ae5fef71f851198e45ccce8fe54"
+        ],
+        [
+          "alberta_framework.core.policy_archive",
+          "dba1dd9fc19a1157b7ad291108bd7804200adc1abfc73695f2d794c4ab9b1fb3"
+        ],
+        [
+          "alberta_framework.streams.closed_loop",
+          "9a308dfebd6e4fa319c7cb3b18b0b8f79350b7bb6e904729bd6756094ab46a85"
+        ]
+      ],
+      "dependency_versions": [
+        [
+          "jax",
+          "0.11.0"
+        ],
+        [
+          "numpy",
+          "2.5.1"
+        ]
+      ],
+      "lane_source_sha256": "721370a55a94fa4dd15c21949a15587d74c0272951d2c6e352ed2b80fbecfafc",
+      "paper_registry_sha256": "18342c945e684e3cbdb1687b99a1b0020633fcb70c406cce164d6c1e2b3e781a",
+      "runtime_identity": [
+        [
+          "jax_backend",
+          "cpu"
+        ],
+        [
+          "machine",
+          "x86_64"
+        ],
+        [
+          "python_implementation",
+          "cpython"
+        ],
+        [
+          "python_version",
+          "3.12.3"
+        ],
+        [
+          "system",
+          "Linux"
+        ]
+      ],
+      "workload_registry_sha256": "1c41f6f358ab545dfc70ce0aba109c6adc4e1c6676719808b91040247dc01d53"
+    },
+    "validator_schema": "asi.telapa_qualification_smoke.development.v2",
+    "validator_source_sha256": "721370a55a94fa4dd15c21949a15587d74c0272951d2c6e352ed2b80fbecfafc"
+  }
+}
