@@ -1260,11 +1260,21 @@ def _update_option_model(
     decay = jnp.asarray(model_decay, dtype=jnp.float32)
     lr = jnp.asarray(model_step_size, dtype=jnp.float32)
 
-    new_cumreward = decay * models.cumreward_ema + (1.0 - decay) * pseudo_return
-    new_env_return = decay * models.env_return_ema + (1.0 - decay) * env_return
-    new_duration = decay * models.duration_ema + (1.0 - decay) * duration
-    new_baseline_mass = decay * models.baseline_mass_ema + (1.0 - decay) * baseline_mass
-    new_discount = decay * models.discount_ema + (1.0 - decay) * discount
+    # An EMA blended against its initial value is biased toward that value, and
+    # planning consumes these the moment n_completions reaches 1. Seed each EMA
+    # with the first observed completion so a one-sample model reports that
+    # sample exactly, instead of (1 - decay) * sample for the outcome terms and
+    # decay * 1.0 for the discount (which would bootstrap through a terminal).
+    unseeded = models.n_completions == 0
+
+    def _blend(previous: Array, observed: Array) -> Array:
+        return jnp.where(unseeded, observed, decay * previous + (1.0 - decay) * observed)
+
+    new_cumreward = _blend(models.cumreward_ema, pseudo_return)
+    new_env_return = _blend(models.env_return_ema, env_return)
+    new_duration = _blend(models.duration_ema, duration)
+    new_baseline_mass = _blend(models.baseline_mass_ema, baseline_mass)
+    new_discount = _blend(models.discount_ema, discount)
 
     predicted_delta = models.next_state_weights[option_idx] @ start_obs
     actual_delta = end_obs - start_obs
