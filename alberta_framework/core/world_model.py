@@ -819,16 +819,20 @@ class ActionConditionedWorldModel:
         raw_predictions = self._learner.predict(state.learner_state, inputs)
 
         obs_scale = jnp.asarray(self._observation_scale, dtype=jnp.float32)
-        normalized_delta = jnp.clip(
-            raw_predictions[: self._config.observation_dim],
-            -self._config.max_delta_scale,
-            self._config.max_delta_scale,
-        )
-        decoded_next_observation = jnp.where(
-            self._config.predict_delta,
-            safe_obs + normalized_delta * obs_scale,
-            normalized_delta * obs_scale,
-        )
+        observation_head = raw_predictions[: self._config.observation_dim]
+        if self._config.predict_delta:
+            # max_delta_scale bounds a normalized *delta*, so it applies only here.
+            normalized_delta = jnp.clip(
+                observation_head,
+                -self._config.max_delta_scale,
+                self._config.max_delta_scale,
+            )
+            decoded_next_observation = safe_obs + normalized_delta * obs_scale
+        else:
+            # The head predicts an absolute normalized observation, whose training
+            # target (_targets) carries no max_delta_scale bound. Scale it like the
+            # reward head and let the observed-bounds clip below bound it.
+            decoded_next_observation = observation_head * obs_scale
 
         has_bounds = state.step_count > 0
         low = state.observation_min - self._config.observation_clip_margin
