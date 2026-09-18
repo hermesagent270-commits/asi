@@ -1035,6 +1035,42 @@ def test_keyboard_chord_learner_max_norm_bounds_vector() -> None:
     assert float(jnp.linalg.norm(updated.chord_vector)) <= 0.750001
 
 
+@pytest.mark.parametrize(
+    ("n_options", "step_size", "expected_norm"),
+    [(4, 0.7, 1.2), (16, 1.75, 2.0)],
+)
+def test_keyboard_chord_max_norm_holds_just_above_the_bound(
+    n_options: int, step_size: float, expected_norm: float
+) -> None:
+    """The bound must hold for norms just above it, not only for gross overshoot.
+
+    ``vector_max`` is ``mantissa * 2**exponent`` with ``mantissa`` in ``[0.5, 1)``,
+    so comparing it against ``max_norm / scaled_vector_norm`` tests
+    ``mantissa * norm > max_norm`` instead of ``norm > max_norm``.  Every proposed
+    vector whose norm lands in ``(max_norm, max_norm / mantissa]`` -- up to twice
+    the configured bound -- therefore commits unclipped.
+    """
+    max_norm = 1.0
+    cfg = KeyboardChordLearnerConfig(
+        n_options=n_options,
+        step_size=step_size,
+        baseline_decay=0.9,
+        l2_penalty=0.0,
+        max_norm=max_norm,
+    )
+    state = init_keyboard_chord_learner(cfg)
+    updated = update_keyboard_chord_learner(
+        cfg,
+        state,
+        jnp.ones((n_options,), dtype=jnp.float32),
+        jnp.array(1.0, dtype=jnp.float32),
+    )
+    committed = float(jnp.linalg.norm(updated.chord_vector))
+    # The unclipped proposal really does exceed the bound, so this is a live clip.
+    assert expected_norm > max_norm
+    assert committed <= max_norm + 1e-6
+
+
 def test_keyboard_chord_learner_infinite_reward_does_not_poison_vector() -> None:
     """Inf advantage * a zero chord coordinate is 0*inf = NaN."""
     cfg = KeyboardChordLearnerConfig(n_options=3, step_size=0.1, max_norm=10.0)

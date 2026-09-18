@@ -1176,7 +1176,11 @@ def update_keyboard_chord_learner(
     scaled_vector = jnp.ldexp(proposed_vector, -vector_exponent)
     scaled_vector_norm = jnp.linalg.norm(scaled_vector)
     max_norm = jnp.asarray(config.max_norm, dtype=jnp.float32)
-    exceeds_max_norm = vector_max > max_norm / scaled_vector_norm
+    # Compare in the frexp-scaled space: scaled_vector_norm is ||v|| * 2**-exponent,
+    # so this is exactly ||v|| > max_norm. Testing vector_max instead would compare
+    # mantissa * ||v|| against max_norm and leave norms up to max_norm/mantissa
+    # (as much as twice the bound) unclipped.
+    exceeds_max_norm = scaled_vector_norm > jnp.ldexp(max_norm, -vector_exponent)
     bounded_vector = jnp.where(
         exceeds_max_norm,
         (scaled_vector / scaled_vector_norm) * max_norm,
