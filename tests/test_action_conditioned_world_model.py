@@ -978,3 +978,48 @@ def test_action_world_model_observation_scale_targets_paired_with_decode() -> No
         # Target normalized delta must be 2.0 exactly
         targets = model.targets(obs, reward, discount, next_obs)
         np.testing.assert_allclose(float(targets[0]), 2.0, rtol=1e-5)
+
+
+def test_absolute_decode_is_not_bounded_by_the_delta_clip() -> None:
+    """``max_delta_scale`` bounds a delta; it must not truncate absolute decodes.
+
+    With ``predict_delta=False`` the training target built by the model is
+    ``next_obs / observation_scale`` -- an absolute normalized observation, with
+    no ``max_delta_scale`` bound applied.  Clipping the same head to
+    +/-``max_delta_scale`` at prediction time makes the model structurally unable
+    to return what it was trained to produce for any observation whose normalized
+    magnitude exceeds that bound.
+    """
+    target = 12.0
+    config = ActionConditionedWorldModelConfig(
+        observation_dim=1,
+        n_actions=2,
+        predict_delta=False,
+        observation_scale=(1.0,),
+        max_delta_scale=5.0,
+        hidden_sizes=(),
+        step_size=0.2,
+        use_layer_norm=False,
+    )
+    model = ActionConditionedWorldModel(config)
+    state = model.init(jr.key(0))
+    observation = jnp.array([0.0], dtype=jnp.float32)
+    next_observation = jnp.array([target], dtype=jnp.float32)
+    action = jnp.array(0, dtype=jnp.int32)
+    for _ in range(600):
+        state = model.update(
+            state,
+            observation,
+            action,
+            jnp.asarray(0.0, dtype=jnp.float32),
+            jnp.asarray(0.99, dtype=jnp.float32),
+            next_observation,
+        ).state
+
+    prediction = model.predict(state, observation, action)
+    learned = float(jnp.asarray(prediction.raw_predictions)[0])
+    decoded = float(jnp.asarray(prediction.next_observation)[0])
+
+    # The head really did learn the absolute target, so this is a decode bug.
+    assert learned == pytest.approx(target, abs=0.5)
+    assert decoded == pytest.approx(target, abs=0.5)
