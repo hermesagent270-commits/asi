@@ -541,14 +541,30 @@ class OffPolicyHordeLearner:
         next_observation: Array,
         rhos: Array,
         discounts: Array,
+        previous_discounts: Array | None = None,
     ) -> OffPolicyHordeUpdateResult:
-        """Update using explicit ratios and transition discounts."""
+        """Update using explicit ratios and transition discounts.
+
+        ``discounts`` is ``gamma_{t+1}``, the discount into the next state, and
+        it bootstraps the TD target. The eligibility trace instead continues by
+        ``gamma_t``, the discount into the *current* state, which is the previous
+        call's ``discounts`` -- the same split ``learners.py`` documents for its
+        Dutch trace via ``previous_gamma``. Pass it as ``previous_discounts``
+        whenever the discount varies over time. Left at ``None`` the trace
+        decays by ``discounts``, which is exact for a constant discount and
+        preserves the behaviour of every existing caller.
+        """
         n_demons = self.n_demons
         replacing = self._trace_mode == TraceMode.REPLACING
         counter_status = self._learner._counter_status(state)
 
         rhos = jnp.asarray(rhos, dtype=jnp.float32)
         discounts = jnp.asarray(discounts, dtype=jnp.float32)
+        trace_discounts = (
+            discounts
+            if previous_discounts is None
+            else jnp.asarray(previous_discounts, dtype=jnp.float32)
+        )
         clipped_rhos = jnp.minimum(
             jnp.maximum(rhos, 0.0),
             jnp.asarray(self._ratio_clip, dtype=jnp.float32),
@@ -580,7 +596,7 @@ class OffPolicyHordeLearner:
             )
         lamdas = self._horde_spec.lamdas
         head_decay_unused = jnp.all(
-            (discounts == 0.0) | (jnp.asarray(lamdas, dtype=jnp.float32) == 0.0)
+            (trace_discounts == 0.0) | (jnp.asarray(lamdas, dtype=jnp.float32) == 0.0)
         )
         checked_state = checked_state.replace(  # type: ignore[attr-defined]
             head_traces=tuple(
@@ -601,6 +617,9 @@ class OffPolicyHordeLearner:
             & jnp.isfinite(discounts)
             & (discounts >= 0.0)
             & (discounts <= 1.0)
+            & jnp.isfinite(trace_discounts)
+            & (trace_discounts >= 0.0)
+            & (trace_discounts <= 1.0)
             & (zero_discount_mask | (next_observation_valid & jnp.isfinite(next_predictions)))
             & jnp.isfinite(td_targets)
         )
@@ -608,7 +627,9 @@ class OffPolicyHordeLearner:
         safe_targets = jnp.where(active_mask, td_targets, 0.0)
         safe_clipped_rhos = jnp.where(active_mask, clipped_rhos, 0.0)
         safe_trace_coefficients = jnp.where(active_mask, trace_coefficients, 0.0)
-        safe_discounts = jnp.where(active_mask, discounts, 0.0)
+        # Only the trace decay consumes a masked discount; the bootstrap above
+        # uses the raw ``discounts`` before masking.
+        safe_trace_discounts = jnp.where(active_mask, trace_discounts, 0.0)
 
         obs = observation
         new_normalizer_state = state.normalizer_state
@@ -784,7 +805,7 @@ class OffPolicyHordeLearner:
             safe_hidden = jnp.where(active_mask[i], hidden, jnp.zeros_like(hidden))
             w_grad = safe_clipped_rhos[i] * safe_hidden.reshape(1, -1)
             b_grad = safe_clipped_rhos[i] * jnp.ones(1, dtype=jnp.float32)
-            head_gl = safe_discounts[i] * lamdas[i] * safe_trace_coefficients[i]
+            head_gl = safe_trace_discounts[i] * lamdas[i] * safe_trace_coefficients[i]
 
             if replacing:
                 new_w_trace = jnp.where(
@@ -1566,11 +1587,20 @@ def run_off_policy_horde_learning_loop(
     else:
         _require_off_policy_horde_matching_length("discounts", discounts, expected=num_steps)
 
+    # The trace at step t continues by gamma_t, the discount into S_t, which is
+    # step t-1's discount; only the bootstrap uses step t's own gamma_{t+1}. The
+    # first step has no predecessor and opens at 1.0, matching the
+    # ``previous_gamma`` initialization in ``types.py``.
+    previous_discounts = jnp.concatenate(
+        [jnp.ones_like(discounts[:1]), discounts[:-1]],
+        axis=0,
+    )
+
     def step_fn(
         carry: MultiHeadMLPState,
-        inputs: tuple[Array, Array, Array, Array, Array],
+        inputs: tuple[Array, Array, Array, Array, Array, Array],
     ) -> tuple[MultiHeadMLPState, tuple[Array, Array, Array, Array, Array]]:
-        obs, cums, next_obs, rho_t, discount_t = inputs
+        obs, cums, next_obs, rho_t, discount_t, previous_discount_t = inputs
         result = learner.update_with_ratios_and_discounts(
             carry,
             obs,
@@ -1578,6 +1608,7 @@ def run_off_policy_horde_learning_loop(
             next_obs,
             rho_t,
             discount_t,
+            previous_discount_t,
         )
         return (
             result.state,
@@ -1603,7 +1634,7 @@ def run_off_policy_horde_learning_loop(
     ) = jax.lax.scan(
         step_fn,
         state,
-        (observations, cumulants, next_observations, rhos, discounts),
+        (observations, cumulants, next_observations, rhos, discounts, previous_discounts),
     )
     elapsed = time.time() - t0
     final_state = final_state.replace(  # type: ignore[attr-defined]

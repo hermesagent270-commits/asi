@@ -853,3 +853,114 @@ def test_off_policy_horde_ratio_clip_scalars_reject_booleans_and_nans() -> None:
     assert learner._ratio_clip == 2.0
     assert learner._trace_ratio_clip == 1.0
     assert learner._min_behavior_probability == 1e-6
+
+
+def test_scan_decays_head_traces_by_the_prior_step_discount() -> None:
+    """The trace continues by gamma_t; only the bootstrap uses gamma_{t+1}.
+
+    ``learners.py`` states the split for its Dutch trace: the trace decays by the
+    prior call's discount (``previous_gamma``, the discount into S_t) while the
+    TD-error bootstrap uses this call's discount. The scan runner owns the whole
+    transition sequence, so it must hand the learner step ``t-1``'s discount for
+    the trace rather than reusing step ``t``'s own bootstrap discount.
+    """
+    lamda = 0.9
+    learner = OffPolicyHordeLearner(
+        _spec(gammas=(0.5,), lamdas=(lamda,)),
+        hidden_sizes=(),
+        optimizer=LMS(step_size=0.0),  # freeze weights so traces alone move
+        sparsity=0.0,
+        use_layer_norm=False,
+    )
+    state = learner.init(2, jax.random.key(11))
+
+    observations = jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=jnp.float32)
+    next_observations = jnp.array([[0.0, 1.0], [1.0, 1.0]], dtype=jnp.float32)
+    cumulants = jnp.array([[0.5], [0.25]], dtype=jnp.float32)
+    rhos = jnp.ones((2, 1), dtype=jnp.float32)
+    # Two different discounts, so the two conventions cannot coincide.
+    first_discount, second_discount = 0.25, 1.0
+    discounts = jnp.array([[first_discount], [second_discount]], dtype=jnp.float32)
+
+    result = run_off_policy_horde_learning_loop(
+        learner,
+        state,
+        observations,
+        cumulants,
+        next_observations,
+        rhos,
+        discounts,
+    )
+
+    # Step 1 opens with no predecessor, so its trace is just its own gradient.
+    step_one_trace = np.asarray(observations[0], dtype=np.float32)
+    # Step 2 continues that trace by the discount into S_2, i.e. step 1's.
+    correct = first_discount * lamda * step_one_trace + np.asarray(observations[1])
+    wrong = second_discount * lamda * step_one_trace + np.asarray(observations[1])
+
+    final_w_trace = np.asarray(result.state.head_traces[0][0]).reshape(-1)
+    np.testing.assert_allclose(final_w_trace, correct, rtol=1e-6, atol=1e-6)
+    assert not np.allclose(final_w_trace, wrong, rtol=1e-6, atol=1e-6)
+
+
+def test_explicit_previous_discounts_override_the_trace_decay() -> None:
+    """The single-step API accepts the prior discount and decays the trace by it."""
+    lamda = 0.9
+    learner = OffPolicyHordeLearner(
+        _spec(gammas=(0.5,), lamdas=(lamda,)),
+        hidden_sizes=(),
+        optimizer=LMS(step_size=0.0),
+        sparsity=0.0,
+        use_layer_norm=False,
+    )
+    state = learner.init(2, jax.random.key(11))
+    first = learner.update_with_ratios_and_discounts(
+        state,
+        jnp.array([1.0, 0.0], dtype=jnp.float32),
+        jnp.array([0.5], dtype=jnp.float32),
+        jnp.array([0.0, 1.0], dtype=jnp.float32),
+        jnp.ones(1, dtype=jnp.float32),
+        jnp.array([0.25], dtype=jnp.float32),
+    ).state
+
+    carried = np.asarray(first.head_traces[0][0]).reshape(-1)
+    observation = jnp.array([0.0, 1.0], dtype=jnp.float32)
+    second = learner.update_with_ratios_and_discounts(
+        first,
+        observation,
+        jnp.array([0.25], dtype=jnp.float32),
+        jnp.array([1.0, 1.0], dtype=jnp.float32),
+        jnp.ones(1, dtype=jnp.float32),
+        jnp.array([1.0], dtype=jnp.float32),          # gamma_{t+1}, bootstrap only
+        jnp.array([0.25], dtype=jnp.float32),         # gamma_t, trace decay
+    ).state
+
+    expected = 0.25 * lamda * carried + np.asarray(observation)
+    np.testing.assert_allclose(
+        np.asarray(second.head_traces[0][0]).reshape(-1), expected, rtol=1e-6, atol=1e-6
+    )
+
+
+def test_omitting_previous_discounts_preserves_existing_behaviour() -> None:
+    """Callers that pass no prior discount keep decaying by ``discounts``."""
+    lamda = 0.9
+    learner = OffPolicyHordeLearner(
+        _spec(gammas=(0.5,), lamdas=(lamda,)),
+        hidden_sizes=(),
+        optimizer=LMS(step_size=0.0),
+        sparsity=0.0,
+        use_layer_norm=False,
+    )
+    state = learner.init(2, jax.random.key(11))
+    args = (
+        jnp.array([1.0, 0.0], dtype=jnp.float32),
+        jnp.array([0.5], dtype=jnp.float32),
+        jnp.array([0.0, 1.0], dtype=jnp.float32),
+        jnp.ones(1, dtype=jnp.float32),
+        jnp.array([0.75], dtype=jnp.float32),
+    )
+    first = learner.update_with_ratios_and_discounts(state, *args).state
+    explicit = learner.update_with_ratios_and_discounts(
+        state, *args, jnp.array([0.75], dtype=jnp.float32)
+    ).state
+    chex.assert_trees_all_close(first.head_traces, explicit.head_traces)
