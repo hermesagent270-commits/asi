@@ -260,7 +260,7 @@ class TestMetadata:
                 args=ocp.args.Composite(metadata=ocp.args.JsonRestore()),
             )
 
-        assert dict(restored.metadata) == {"_format_version": 2, "epoch": 7}
+        assert dict(restored.metadata) == {"_format_version": 3, "epoch": 7}
 
     def test_rejects_nonfinite_metadata_without_writing(self, tmp_path):
         """NaN metadata used to persist and reload as a real metric."""

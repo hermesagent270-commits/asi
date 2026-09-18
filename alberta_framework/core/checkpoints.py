@@ -53,7 +53,10 @@ from alberta_framework._bounded_containers import (
 # caller-provided template PyTree (orbax raises ValueError on a tree
 # mismatch). The stamp is provenance for external tooling and any future
 # migration path.
-_FORMAT_VERSION = 2
+# 3: MultiHeadMLPState carries previous_head_discounts (gamma_t for the
+# eligibility trace). A version-2 checkpoint has one fewer leaf and is
+# rejected by the restore template's structure check rather than misread.
+_FORMAT_VERSION = 3
 
 # Internal metadata key — stripped from user-facing metadata
 _VERSION_KEY = "_format_version"

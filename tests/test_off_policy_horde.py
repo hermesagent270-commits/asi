@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from alberta_framework.core.checkpoints import load_checkpoint, save_checkpoint
 from alberta_framework.core.off_policy_horde import (
     NonlinearSharedGTDHordeLearner,
     OffPolicyHordeLearner,
@@ -964,3 +967,29 @@ def test_omitting_previous_discounts_preserves_existing_behaviour() -> None:
         state, *args, jnp.array([0.75], dtype=jnp.float32)
     ).state
     chex.assert_trees_all_close(first.head_traces, explicit.head_traces)
+
+
+def test_checkpoint_without_the_carried_discount_fails_closed(tmp_path: Path) -> None:
+    """A pre-``previous_head_discounts`` checkpoint must be refused, not misread.
+
+    ``MultiHeadMLPState`` gained a leaf, so a checkpoint written before it cannot
+    be restored into the current template. The restore must fail on the structure
+    check rather than silently producing a state whose trace decay opens from the
+    wrong discount.
+    """
+    learner = OffPolicyHordeLearner(
+        _spec(gammas=(0.5,), lamdas=(0.9,)),
+        hidden_sizes=(),
+        optimizer=LMS(step_size=0.1),
+        sparsity=0.0,
+        use_layer_norm=False,
+    )
+    template = learner.init(2, jax.random.key(3))
+    assert template.previous_head_discounts is not None
+
+    legacy = template.replace(previous_head_discounts=None)
+    path = str(tmp_path / "legacy_checkpoint")
+    save_checkpoint(legacy, path)
+
+    with pytest.raises(ValueError, match="State structure mismatch"):
+        load_checkpoint(template, path)

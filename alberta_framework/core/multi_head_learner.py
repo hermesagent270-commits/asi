@@ -274,6 +274,12 @@ class MultiHeadMLPState:
         hidden_unit_utilities: EMA utility diagnostics for each hidden layer,
             shape ``(hidden_sizes[layer],)``. Empty for linear models.
         normalizer_state: Optional online feature normalizer state
+        previous_head_discounts: Per-head ``gamma_t``, the discount into the
+            current state, carried from the previous update so an eligibility
+            trace continues by it rather than by this step's ``gamma_{t+1}``.
+            Opens at ones, matching ``previous_gamma`` in ``types.py``. Only
+            trace-carrying multi-head updates read it; other learners carry it
+            unchanged.
         step_count: Saturating int32 compatibility telemetry.
         step_words: Exact big-endian ``[high, low]`` uint32 lifetime identity.
         birth_timestamp: Host-only lifecycle metadata. This legacy Python
@@ -291,6 +297,7 @@ class MultiHeadMLPState:
     trunk_traces: tuple[Array, ...]
     head_traces: tuple[Any, ...]  # tuple of (w_trace, b_trace) tuples
     hidden_unit_utilities: tuple[Array, ...] = ()
+    previous_head_discounts: Array | None = None
     normalizer_state: AnyNormalizerState | None = None
     step_count: Array = None  # type: ignore[assignment]
     step_words: UInt[Array, " 2"] = None  # type: ignore[assignment]
@@ -848,6 +855,7 @@ class MultiHeadMLPLearner:
                 jnp.zeros(hidden_size, dtype=jnp.float32)
                 for hidden_size in self._hidden_sizes
             ),
+            previous_head_discounts=jnp.ones(self._n_heads, dtype=jnp.float32),
             normalizer_state=normalizer_state,
             step_count=jnp.array(0, dtype=jnp.int32),
             step_words=jnp.zeros((2,), dtype=jnp.uint32),
@@ -1387,6 +1395,9 @@ class MultiHeadMLPLearner:
             trunk_traces=tuple(new_trunk_traces),
             head_traces=tuple(new_head_traces_list),
             hidden_unit_utilities=tuple(new_hidden_unit_utilities),
+            # This learner does not consume the carried discount; pass it through
+            # unchanged so the state keeps one pytree structure.
+            previous_head_discounts=state.previous_head_discounts,
             normalizer_state=new_normalizer_state,
             step_count=_saturating_int32_counter_increment(state.step_count),
             step_words=counter_status.proposed_step_words,

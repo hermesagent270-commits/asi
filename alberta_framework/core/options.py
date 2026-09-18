@@ -105,7 +105,9 @@ def _stomp_direct_array_scalars(config: STOMPConfig) -> int:
         2 * (trunk_parameters + head_parameters)
         + sum(config.base_hidden_sizes)
         + 2 * len(config.base_hidden_sizes)
-        + 2 * n_heads
+        # Per head: the two trace/optimizer scalars, plus the carried
+        # previous_head_discounts entry (gamma_t for the eligibility trace).
+        + 3 * n_heads
         + 3
     )
     return (
