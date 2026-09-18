@@ -1096,9 +1096,19 @@ class AssociativeMemoryLearner:
                 _cross_entropy_from_logits(row_logits, label),
                 jnp.log(jnp.asarray(self._config.vocab_size, dtype=jnp.float32)),
             )
-            new_utility = (
+            # A row allocated on this step still holds zeros, so ``feature_loss``
+            # above is the uniform placeholder rather than a measurement of the
+            # row. Charging that difference against it would make every newborn
+            # negative whenever the model already beats uniform, ranking it below
+            # every proven row and electing it as the next eviction victim before
+            # it has ever been written. An unproven row starts neutral instead and
+            # earns utility from its next observation, when feature_loss reflects
+            # what the row actually stores.
+            new_utility = jnp.where(
+                found_scalar,
                 self._config.utility_decay * old_utility
-                + self._config.utility_lr * (loss - feature_loss)
+                + self._config.utility_lr * (loss - feature_loss),
+                0.0,
             )
             # Clip the stored trace, not just the derived weight: ±8 is far
             # outside the range that moves the clamped weight (ln of the

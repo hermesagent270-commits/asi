@@ -995,3 +995,62 @@ def test_prior_coefficient_is_independent_of_feature_weight_mass() -> None:
     prior_term_high = high.logits[0]
     prior_term_low = low.logits[0]
     chex.assert_trees_all_close(prior_term_high, prior_term_low, atol=1e-6)
+
+
+def test_newly_allocated_row_is_not_born_as_the_eviction_victim() -> None:
+    """A freshly allocated row must not be charged the uniform-loss placeholder.
+
+    When a row is allocated its stored values are still zeros, so the
+    per-feature loss it is scored against is the uniform ``log(vocab_size)``
+    placeholder rather than a measurement of that row.  Charging
+    ``utility_lr * (loss - log(vocab_size))`` against it makes every newborn
+    strictly negative whenever the model already beats uniform on the example,
+    which ranks it below every proven row and makes it the next eviction
+    victim before it has ever been written.
+    """
+    vocab = 32
+    config = AssociativeMemoryConfig(
+        vocab_size=vocab,
+        block_size=4,
+        suffix_length=2,
+        feature_family="token_suffix_pair",
+        max_features=512,
+    )
+    learner = AssociativeMemoryLearner(config)
+    state = learner.init()
+    label = jnp.array(5, dtype=jnp.int32)
+    suffix = [9, 11]
+    for leading in range(2, 8):
+        context = jnp.array([leading, 1, *suffix], dtype=jnp.int32)
+        for _ in range(60):
+            state = learner.update(state, context, label).state
+
+    # A novel leading token over the same well-trained suffix: the model already
+    # predicts the label, so loss < log(vocab_size), and one row is allocated.
+    novel = jnp.array([25, 1, *suffix], dtype=jnp.int32)
+    prediction = learner.predict(state, novel)
+    loss = float(-(prediction.logits[5] - jnp.log(jnp.sum(jnp.exp(prediction.logits)))))
+    assert loss < math.log(vocab)
+
+    # Identify allocations by row occupancy (counts), not by utility: the whole
+    # point of the fix is that a newborn's utility stays at its neutral 0.0, so
+    # keying off a utility change would make this test vacuous.
+    before_counts = np.asarray(state.counts).copy()
+    before = np.asarray(state.utility).copy()
+    updated = learner.update(state, novel, label).state
+    after = np.asarray(updated.utility)
+    after_counts = np.asarray(updated.counts)
+    newborn = [
+        i
+        for i in np.nonzero(before_counts != after_counts)[0]
+        if before_counts[i] == 0 and before[i] == 0.0
+    ]
+    assert newborn, "expected at least one newly allocated row"
+
+    newborn_utility = after[newborn]
+    # Unproven, not penalized: a newborn starts neutral rather than below every
+    # occupied row, so it is not the first slot the replacement scan gives away.
+    np.testing.assert_allclose(newborn_utility, np.zeros_like(newborn_utility), atol=1e-6)
+    occupied = after[after != 0.0]
+    if occupied.size:
+        assert int(after.argmin()) not in set(newborn)
