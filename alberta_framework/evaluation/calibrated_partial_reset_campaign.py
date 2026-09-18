@@ -820,6 +820,8 @@ def _open_parent(path: Path) -> int:
 def _reserve(path: Path) -> Reservation:
     if type(path) is not type(Path()) or path.absolute() != OUTPUT_PATH.absolute():
         raise ValueError("CPR output must be the exact frozen NEW path")
+    if not all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW", "O_TMPFILE")):
+        raise OSError("CPR publication requires Linux descriptor support")
     directory = _open_parent(path)
     marker_name = f".{path.name}.reservation"
     marker_fd = -1

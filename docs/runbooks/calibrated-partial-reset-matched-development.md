@@ -90,6 +90,11 @@ structural validation precedes all replay, which compares every non-timing
 receipt field against a fresh dataset-bound runner call. Publication stages
 bounded duplicate-key-free JSON in a Linux `O_TMPFILE`, fsyncs it, makes it
 read-only, links without replacement, and strictly rereads its owned inode.
+Publication is therefore Linux-only: the reservation fails closed with `CPR
+publication requires Linux descriptor support` on any host lacking
+`O_DIRECTORY`, `O_NOFOLLOW`, or `O_TMPFILE`, and refuses before it opens or
+creates any directory entry. The durability tests skip on exactly that
+predicate, so they skip where the module would refuse and run where it succeeds.
 The held parent must still be the visible registered parent after reservation,
 before link, after directory fsync, and during final validation/completion.
 Reservation and status writes loop until every byte is written or fail closed.

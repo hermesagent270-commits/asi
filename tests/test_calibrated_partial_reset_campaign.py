@@ -15,6 +15,7 @@ import pytest
 import alberta_framework.evaluation.calibrated_partial_reset_campaign as lane
 from alberta_framework.benchmarks.ipmnist_screening import ScreeningRunResult
 from alberta_framework.benchmarks.upgd_ipmnist import IPMNISTConfig
+from tests._forager_matched_platform import HAS_O_TMPFILE, requires_o_tmpfile
 
 SMALL = IPMNISTConfig(n_tasks=1, task_length=8, input_dim=4, hidden1=3, hidden2=2, n_classes=2)
 
@@ -311,6 +312,7 @@ def test_noncontiguous_dataset_is_rejected_before_runner(monkeypatch: pytest.Mon
     assert calls == 0
 
 
+@requires_o_tmpfile
 def test_transaction_reserves_before_load_and_retains_tombstone_after_dispatch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -359,6 +361,7 @@ def test_transaction_reserves_before_load_and_retains_tombstone_after_dispatch(
     assert calls == 1
 
 
+@requires_o_tmpfile
 def test_transaction_strictly_publishes_and_retains_completion_marker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -419,6 +422,7 @@ def _replace_parent(destination: Path) -> Path:
     return hidden
 
 
+@requires_o_tmpfile
 def test_replaced_parent_after_reservation_blocks_dataset_load(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -442,6 +446,7 @@ def test_replaced_parent_after_reservation_blocks_dataset_load(
         )
 
 
+@requires_o_tmpfile
 @pytest.mark.parametrize("stage", ["link", "directory_fsync"])
 def test_replaced_parent_during_publication_rejects_hidden_report(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str
@@ -485,6 +490,7 @@ def test_replaced_parent_during_publication_rejects_hidden_report(
     assert not (tmp_path / "displaced" / destination.name).exists()
 
 
+@requires_o_tmpfile
 @pytest.mark.parametrize("stage", ["reservation", "tombstone"])
 def test_marker_short_writes_retain_every_byte(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stage: str
@@ -510,6 +516,7 @@ def test_marker_short_writes_retain_every_byte(
         assert marker.read_bytes() == b"asi-cpr-consumed-without-result-v1\n"
 
 
+@requires_o_tmpfile
 def test_zero_progress_reservation_write_fails_closed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -592,6 +599,17 @@ def test_persistent_payload_matches_actual_authoritative_learner_states() -> Non
         assert payload_bytes == lane._resource_envelope(SMALL, 8)["peak_persistent_numeric_bytes"]
 
 
+@pytest.mark.skipif(HAS_O_TMPFILE, reason="tests Linux-only publication refusal off Linux")
+def test_reserve_refuses_without_linux_descriptor_support() -> None:
+    # The frozen-path check precedes the platform guard, so the exact OUTPUT_PATH is
+    # required to reach it; the guard itself runs before _open_parent, so refusing
+    # creates no directory entry anywhere under the output tree.
+    with pytest.raises(OSError, match="CPR publication requires Linux descriptor support"):
+        lane._reserve(lane.OUTPUT_PATH)
+    assert not lane.OUTPUT_PATH.exists()
+
+
+@requires_o_tmpfile
 def test_dispatch_marker_is_durable_before_first_learner_call(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -654,6 +672,7 @@ def test_primary_gate_requires_margin_and_every_seed_without_ablation_rescue(
     assert primary["standard_error"] == pytest.approx(np.std(observed, ddof=1) / np.sqrt(5))
 
 
+@requires_o_tmpfile
 def test_dataset_load_failure_releases_only_predispatch_reservation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
