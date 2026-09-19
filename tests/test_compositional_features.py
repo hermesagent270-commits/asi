@@ -16,6 +16,7 @@ from alberta_framework.core.compositional_features import (
     GENERATION_ROBUST_RECURSIVE,
     OP_PRODUCT,
     OP_RAW,
+    OP_SUM,
     OP_TANH,
     CompositionalFeatureLearner,
     CompositionalFeatureState,
@@ -475,6 +476,62 @@ class TestCompositionalFeatureLearner:
         assert int(result.replaced_slot) == -1
         assert int(result.state.ops[2]) == OP_PRODUCT
         assert float(result.state.retention_slow_utilities[2]) > 8.0
+
+    def test_depth_bonus_protects_deep_features_on_the_promotion_path(self) -> None:
+        """``retention_depth_bonus`` must shape which slot a promoted candidate evicts.
+
+        The bonus is documented as an additive replacement-score bonus for
+        deeper active features. With candidates enabled, promotion is the only
+        mechanism that replaces an active slot, so the eviction target must be
+        the lowest bonus-inclusive score, not the lowest raw utility.
+        """
+        max_depth = 4
+        learner = CompositionalFeatureLearner(
+            n_features=5,
+            n_tasks=1,
+            candidate_count=1,
+            step_size_output=0.0,
+            step_size_theta=0.0,
+            utility_decay=0.9,
+            replacement_interval=1,
+            min_feature_age=0,
+            candidate_min_age=0,
+            promotion_margin=1.0,
+            promotion_blend=0.0,
+            max_depth=max_depth,
+            use_obgd=False,
+            retention_depth_bonus=100.0,
+        )
+        # raw0, raw1, slot2 = x0*x1 (depth 1), slot3 = slot2*x0 (depth 2), slot4 = x0+x1 (depth 1)
+        state = learner.init(feature_dim=2, key=jr.key(26)).replace(  # type: ignore[attr-defined]
+            ops=jnp.array([OP_RAW, OP_RAW, OP_PRODUCT, OP_PRODUCT, OP_SUM], dtype=jnp.int32),
+            parent_a=jnp.array([0, 1, 0, 2, 0], dtype=jnp.int32),
+            parent_b=jnp.array([-1, -1, 1, 0, 1], dtype=jnp.int32),
+            depth=jnp.array([0, 0, 1, 2, 1], dtype=jnp.int32),
+            utilities=jnp.array([0.0, 0.0, 1.0, 0.4, 0.5], dtype=jnp.float32),
+            ages=jnp.full((5,), 100, dtype=jnp.int32),
+            candidate_ops=jnp.array([OP_PRODUCT], dtype=jnp.int32),
+            candidate_parent_a=jnp.array([0], dtype=jnp.int32),
+            candidate_parent_b=jnp.array([1], dtype=jnp.int32),
+            candidate_depth=jnp.array([1], dtype=jnp.int32),
+            candidate_utilities=jnp.array([10.0], dtype=jnp.float32),
+            candidate_ages=jnp.array([100], dtype=jnp.int32),
+        )
+        # Zero observation: every utility signal is zero, so utilities only decay.
+        result = learner.update(
+            state, jnp.zeros((2,), dtype=jnp.float32), jnp.array([0.0], dtype=jnp.float32)
+        )
+
+        decayed = np.array([1.0, 0.4, 0.5]) * 0.9
+        bonus = 100.0 * np.array([1, 2, 1]) / max_depth
+        assert int(np.argmin(decayed)) == 1  # raw utility alone would evict slot 3
+        assert int(np.argmin(decayed + bonus)) == 2  # the documented score evicts slot 4
+
+        assert bool(result.update_applied)
+        assert int(result.promoted_candidate) == 0
+        assert int(result.replaced_slot) == 4
+        assert int(result.state.depth[3]) == 2
+        assert int(result.state.ops[3]) == OP_PRODUCT
 
     def test_default_retention_path_still_allows_fast_promotion(self) -> None:
         """Disabled slow retention preserves the historical fast-utility path."""

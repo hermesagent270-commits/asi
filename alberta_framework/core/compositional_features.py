@@ -3356,9 +3356,13 @@ class CompositionalFeatureLearner:
             * state.depth.astype(jnp.float32)
             / jnp.maximum(float(self._max_depth), 1.0)
         )
+        # The documented replacement score of an active feature includes the
+        # depth bonus; both eviction paths (direct replacement and candidate
+        # promotion) must rank slots by this same score.
+        protected_replacement_score = active_replacement_score + retention_bonus
         active_scores = jnp.where(
             eligible_active,
-            active_replacement_score + retention_bonus,
+            protected_replacement_score,
             jnp.inf,
         )
         worst_active = jnp.argmin(active_scores).astype(jnp.int32)
@@ -3482,7 +3486,13 @@ class CompositionalFeatureLearner:
             refresh_scores = jnp.where(eligible_candidates, ranking_candidate_utilities, jnp.inf)
             worst_candidate = jnp.argmin(refresh_scores).astype(jnp.int32)
             compatible_active = compatible_active_by_candidate[best_candidate]
-            promotion_slot_scores = jnp.where(compatible_active, active_replacement_score, jnp.inf)
+            # The depth bonus decides *which* compatible slot a promotion
+            # evicts (the same ranking as the direct-replacement path); the
+            # margin gate still asks whether the candidate beats what that
+            # slot actually contributes.
+            promotion_slot_scores = jnp.where(
+                compatible_active, protected_replacement_score, jnp.inf
+            )
             promotion_slot = jnp.argmin(promotion_slot_scores).astype(jnp.int32)
             should_promote = (
                 should_try_replace
