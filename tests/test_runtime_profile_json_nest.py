@@ -60,13 +60,15 @@ def test_last_fit_json_chain_still_encodes() -> None:
 def test_origin_recursion_class_rejects_before_dumps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    profile = _nest(16_000)
+
     def fail_dumps(*_args: object, **_kwargs: object) -> str:
         raise AssertionError("json.dumps ran before the runtime-profile nest gate")
 
     monkeypatch.setattr(json, "dumps", fail_dumps)
     started = time.perf_counter()
     with pytest.raises(ValueError, match="nesting depth"):
-        validate_environment_runtime_profile(_nest(16_000))
+        validate_environment_runtime_profile(profile)
     assert time.perf_counter() - started < 0.25
 
 
