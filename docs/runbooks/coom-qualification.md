@@ -78,10 +78,15 @@ source/license/WAD/config identity, and reports an unattested, nonpromoting
 runtime receipt. A local audit ran the image twice at seed 1582000 and observed
 the same trace SHA-256
 `c74968494ccebaaeac4bc1e0c0f1db7546ac5091b831c05a4c0c727266da696f`.
-Those receipts were not retained, so the digest is a reproducibility target,
-not execution evidence; timing remains telemetry-only. The runtime closes the
-bounded engine-load/reset/step implementation prerequisite, not the full
-benchmark or learner qualification.
+Those two exploratory receipts were not retained. A subsequent run was
+independently validated and retained append-only at
+`outputs/coom_qualification/real_engine_smoke_20260822/receipt.v1.json`; its
+file SHA-256 is
+`ca19bb23b1bed07b8ad77d7d422c7f8e02aa2194d107b5ed3040d8c3bcaa60ed`.
+The receipt records the same trace digest, but remains unattested and
+permanently nonpromoting; timing remains telemetry-only. The runtime and
+retained receipt close the bounded engine-load/reset/step implementation and
+retention prerequisites, not the full benchmark or learner qualification.
 
 ## Gates still open
 

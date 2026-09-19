@@ -12,6 +12,10 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 ROOT = Path("external_runtimes/coom")
+RETAINED_RECEIPT = Path(
+    "outputs/coom_qualification/real_engine_smoke_20260822/receipt.v1.json"
+)
+RETAINED_RECEIPT_SHA256 = "ca19bb23b1bed07b8ad77d7d422c7f8e02aa2194d107b5ed3040d8c3bcaa60ed"
 
 
 class _HookStr(str):
@@ -124,6 +128,23 @@ def test_coom_runbook_requires_the_reviewed_sandbox_boundary() -> None:
         "noexec",
     ):
         assert required in readme
+
+
+def test_retained_real_engine_receipt_is_strictly_validated_and_documented(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    smoke = _smoke_module()
+    manifest = json.loads((ROOT / "qualification-manifest.json").read_bytes())
+    monkeypatch.setattr(smoke, "_load_qualification_manifest", lambda: manifest)
+
+    raw = RETAINED_RECEIPT.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == RETAINED_RECEIPT_SHA256
+    receipt = smoke.validate_receipt_file(RETAINED_RECEIPT)
+    assert receipt["trace_sha256"] == smoke.EXPECTED_TRACE_SHA256
+
+    runbook = Path("docs/runbooks/coom-qualification.md").read_text(encoding="utf-8")
+    assert RETAINED_RECEIPT.as_posix() in runbook
+    assert RETAINED_RECEIPT_SHA256 in runbook
 
 
 def test_coom_receipt_validator_rejects_hostile_provider_payloads(
