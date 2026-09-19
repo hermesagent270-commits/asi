@@ -756,16 +756,17 @@ class LatentWorldModel:
             state.learner_state,
             self.input_features_from_latent(z, action),
         )
-        latent_part = jnp.clip(
-            raw_predictions[: self._config.latent_dim],
-            -self._config.max_latent_delta,
-            self._config.max_latent_delta,
-        )
-        next_latent = jnp.where(
-            self._config.predict_delta,
-            z + latent_part,
-            latent_part,
-        )
+        latent_head = raw_predictions[: self._config.latent_dim]
+        if self._config.predict_delta:
+            # ``max_latent_delta`` bounds the predicted step, not an absolute
+            # latent: the absolute target built by ``targets`` is unclipped.
+            next_latent = z + jnp.clip(
+                latent_head,
+                -self._config.max_latent_delta,
+                self._config.max_latent_delta,
+            )
+        else:
+            next_latent = latent_head
         reward = raw_predictions[self._config.latent_dim] * self._config.reward_scale
         discount = jnp.clip(
             raw_predictions[self._config.latent_dim + 1],
@@ -828,16 +829,15 @@ class LatentWorldModel:
                 state.learner_state,
                 self.input_features_from_latent(latent, action),
             )
-            latent_part = jnp.clip(
-                raw_predictions[: config.latent_dim],
-                -config.max_latent_delta,
-                config.max_latent_delta,
-            )
-            predicted_next_latent = jnp.where(
-                config.predict_delta,
-                latent + latent_part,
-                latent_part,
-            )
+            latent_head = raw_predictions[: config.latent_dim]
+            if config.predict_delta:
+                predicted_next_latent = latent + jnp.clip(
+                    latent_head,
+                    -config.max_latent_delta,
+                    config.max_latent_delta,
+                )
+            else:
+                predicted_next_latent = latent_head
             return jnp.mean((predicted_next_latent - target_next_latent) ** 2)
 
         grad_matrix, grad_bias = jax.grad(latent_prediction_loss, argnums=(0, 1))(

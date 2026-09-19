@@ -779,3 +779,87 @@ def test_latent_world_model_observation_scale_normalizes_without_floor() -> None
             n_actions=2,
             observation_scale=(subnormal,),
         )
+
+
+@pytest.mark.unit
+def test_absolute_next_latent_is_not_bounded_by_the_delta_clip() -> None:
+    """``max_latent_delta`` bounds a latent delta; it must not truncate absolute latents.
+
+    With ``predict_delta=False`` the training target built by ``targets`` is
+    ``encode(next_observation)`` with no ``max_latent_delta`` bound applied.
+    Clipping the same head to +/-``max_latent_delta`` at prediction time makes
+    the model structurally unable to return what it was trained to produce
+    whenever the encoded latent exceeds that bound, and reports a permanent
+    surprise on a transition the head has learned exactly.
+    """
+    config = LatentWorldModelConfig(
+        observation_dim=3,
+        n_actions=2,
+        latent_dim=4,
+        hidden_sizes=(),
+        step_size=0.2,
+        sparsity=0.0,
+        use_layer_norm=False,
+        encoder_scale=3.0,
+        predict_delta=False,
+        max_latent_delta=0.5,
+    )
+    model = LatentWorldModel(config)
+    state = model.init(jr.key(0))
+    observation = jnp.array([0.1, -0.2, 0.3], dtype=jnp.float32)
+    next_observation = jnp.array([0.9, -0.8, 0.7], dtype=jnp.float32)
+    action = jnp.array(1, dtype=jnp.int32)
+    reward = jnp.asarray(0.0, dtype=jnp.float32)
+    discount = jnp.asarray(0.99, dtype=jnp.float32)
+
+    target = np.asarray(model.encode(state, next_observation))
+    # The fixed tanh encoder must actually place the target outside the clip.
+    assert float(np.max(np.abs(target))) > config.max_latent_delta
+
+    for _ in range(600):
+        result = model.update(state, observation, action, reward, discount, next_observation)
+        state = result.state
+
+    prediction = model.predict(state, observation, action)
+    learned = np.asarray(prediction.raw_predictions)[: config.latent_dim]
+    next_latent = np.asarray(prediction.next_latent)
+
+    # The head really did learn the absolute target, so any gap is a decode bug.
+    np.testing.assert_allclose(learned, target, atol=1e-3)
+    np.testing.assert_allclose(next_latent, learned, atol=1e-6)
+    assert float(result.surprise) == pytest.approx(0.0, abs=1e-5)
+
+
+@pytest.mark.unit
+def test_delta_next_latent_remains_bounded_by_the_delta_clip() -> None:
+    """In delta mode the predicted step stays elementwise within ``max_latent_delta``."""
+    config = LatentWorldModelConfig(
+        observation_dim=3,
+        n_actions=2,
+        latent_dim=4,
+        hidden_sizes=(),
+        step_size=0.2,
+        sparsity=0.0,
+        use_layer_norm=False,
+        encoder_scale=3.0,
+        predict_delta=True,
+        max_latent_delta=0.5,
+    )
+    model = LatentWorldModel(config)
+    state = model.init(jr.key(0))
+    observation = jnp.array([0.1, -0.2, 0.3], dtype=jnp.float32)
+    next_observation = jnp.array([-0.9, 0.8, -0.7], dtype=jnp.float32)
+    action = jnp.array(1, dtype=jnp.int32)
+    reward = jnp.asarray(0.0, dtype=jnp.float32)
+    discount = jnp.asarray(0.99, dtype=jnp.float32)
+    for _ in range(200):
+        state = model.update(
+            state, observation, action, reward, discount, next_observation
+        ).state
+
+    prediction = model.predict(state, observation, action)
+    latent = np.asarray(prediction.latent)
+    raw = np.asarray(prediction.raw_predictions)[: config.latent_dim]
+    step = np.asarray(prediction.next_latent) - latent
+    assert float(np.max(np.abs(raw))) > config.max_latent_delta
+    assert float(np.max(np.abs(step))) <= config.max_latent_delta + 1e-6
