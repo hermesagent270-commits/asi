@@ -1,11 +1,13 @@
 """Tests for gauntlet scorecard and window scalar validation."""
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from alberta_framework.streams.gauntlet import (
     GauntletConfig,
     early_window_mse,
+    gauntlet_scorecard,
     lifetime_scorecard,
     savings_ratio,
     segment_slice,
@@ -127,3 +129,45 @@ def test_lifetime_scorecard_identical_floor_and_underflow_windows_score_one() ->
     np.testing.assert_allclose(
         np.asarray(card_improved["savings_d"]), np.full((2, n_cycles - 1), 10.0), rtol=1e-5
     )
+
+
+def _nine_segment_errors(segment_length: int, first_c: float = 4.0) -> jnp.ndarray:
+    # Segment 2 (first task-C exposure) sits at ``first_c``; every other segment at 1.0.
+    sq = jnp.ones((2, 9 * segment_length), dtype=jnp.float32)
+    return sq.at[:, 2 * segment_length : 3 * segment_length].set(first_c)
+
+
+def test_gauntlet_scorecard_scores_legal_short_segments() -> None:
+    """Any ``GauntletConfig`` the stream accepts must be scorable.
+
+    ``run_gauntlet`` accepts every ``segment_length >= 1`` but the scorecard used
+    a hard-coded 200-step entry window it never exposed, so every legal config
+    below 200 steps crashed instead of being scored.
+    """
+    config = GauntletConfig(segment_length=100, relevant_dim=2, irrelevant_dim=0)
+    card = gauntlet_scorecard(_nine_segment_errors(config.segment_length), config)
+    np.testing.assert_allclose(np.asarray(card["savings_c"]), 4.0, rtol=1e-6)
+    np.testing.assert_allclose(np.asarray(card["early_mse_c_first"]), 4.0, rtol=1e-6)
+    np.testing.assert_allclose(np.asarray(card["early_mse_c_recur"]), 1.0, rtol=1e-6)
+    for value in card.values():
+        assert bool(jnp.all(jnp.isfinite(value)))
+
+    # An explicit window is honoured and validated against the segment.
+    explicit = gauntlet_scorecard(_nine_segment_errors(100), config, window=50)
+    np.testing.assert_allclose(np.asarray(explicit["savings_c"]), 4.0, rtol=1e-6)
+    with pytest.raises(ValueError, match=r"window must be an integer in \[1, 100\]"):
+        gauntlet_scorecard(_nine_segment_errors(100), config, window=101)
+    with pytest.raises(ValueError, match="window"):
+        gauntlet_scorecard(_nine_segment_errors(100), config, window=True)  # type: ignore[arg-type]
+
+
+def test_gauntlet_scorecard_default_window_stays_200_for_long_segments() -> None:
+    """Long segments keep the documented 200-step entry window by default."""
+    config = GauntletConfig(segment_length=400, relevant_dim=2, irrelevant_dim=0)
+    sq = _nine_segment_errors(400, first_c=1.0)
+    # First 200 steps of segment 2 at 4.0, the trailing 200 at 1.0: a 200-step
+    # window reads 4.0, a whole-segment window would read 2.5.
+    sq = sq.at[:, 800:1000].set(4.0)
+    card = gauntlet_scorecard(sq, config)
+    np.testing.assert_allclose(np.asarray(card["early_mse_c_first"]), 4.0, rtol=1e-6)
+    np.testing.assert_allclose(np.asarray(card["savings_c"]), 4.0, rtol=1e-6)

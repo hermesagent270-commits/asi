@@ -1365,13 +1365,19 @@ def savings_ratio_steps(
     return jnp.maximum(first, 1) / jnp.maximum(revisit, 1)
 
 
-def gauntlet_scorecard(sq_errors: Array, config: GauntletConfig) -> dict[str, Array]:
+def gauntlet_scorecard(
+    sq_errors: Array, config: GauntletConfig, window: int | None = None
+) -> dict[str, Array]:
     """Compute the per-property scorecard from batched squared errors.
 
     Args:
         sq_errors: Shape ``(n_seeds, num_steps)`` from
             :func:`run_gauntlet_batched` over the full nine-segment program.
         config: The gauntlet configuration used to generate the run.
+        window: Entry-window width for the savings and early-MSE measures.
+            ``None`` selects the documented 200-step window, shortened to
+            the segment when ``config.segment_length`` is below 200 so that
+            every configuration the stream accepts can be scored.
 
     Returns:
         Dict of per-seed arrays (aggregate with median/mean as appropriate):
@@ -1388,16 +1394,20 @@ def gauntlet_scorecard(sq_errors: Array, config: GauntletConfig) -> dict[str, Ar
         - ``nan_steps``: number of non-finite squared errors (P6, must be 0).
     """
     length = config.segment_length
+    if window is None:
+        window = min(200, length)
+    if type(window) is not int or window < 1 or window > length:
+        raise ValueError(f"window must be an integer in [1, {length}], got {window!r}")
     threshold = 2.0 * config.noise_floor
     return {
         "tracking_mse": segment_mse(sq_errors, 1, length),
         "recovery_steps_c": steps_to_criterion(segment_slice(sq_errors, 2, length), threshold),
         "recovery_steps_d": steps_to_criterion(segment_slice(sq_errors, 3, length), threshold),
-        "savings_c": savings_ratio(sq_errors, 2, 4, length),
-        "savings_d": savings_ratio(sq_errors, 3, 5, length),
-        "savings_c_final": savings_ratio(sq_errors, 2, 8, length),
-        "early_mse_c_first": early_window_mse(sq_errors, 2, length),
-        "early_mse_c_recur": early_window_mse(sq_errors, 4, length),
+        "savings_c": savings_ratio(sq_errors, 2, 4, length, window),
+        "savings_d": savings_ratio(sq_errors, 3, 5, length, window),
+        "savings_c_final": savings_ratio(sq_errors, 2, 8, length, window),
+        "early_mse_c_first": early_window_mse(sq_errors, 2, length, window),
+        "early_mse_c_recur": early_window_mse(sq_errors, 4, length, window),
         "scaled_mse": segment_mse(sq_errors, 6, length),
         "nonlinear_mse": segment_mse(sq_errors, 7, length),
         "nan_steps": jnp.sum(~jnp.isfinite(sq_errors), axis=-1),
