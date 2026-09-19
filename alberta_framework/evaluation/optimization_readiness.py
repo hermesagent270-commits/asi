@@ -609,6 +609,8 @@ def validate_development_result(payload: object) -> DevelopmentResultReceipt:
             resource_payload["timing_seconds"], name="timing_seconds", nonnegative=True
         ),
     )
+    if resources.peak_working_set_bytes < resources.persistent_bytes:
+        raise ValueError("peak_working_set_bytes must cover persistent_bytes")
 
     if (
         protocol.full_validation_observations != _APPENDIX_C1_VALIDATION_OBSERVATIONS

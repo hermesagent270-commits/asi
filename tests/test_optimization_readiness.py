@@ -337,6 +337,17 @@ def test_resource_receipt_enforces_live_cross_field_identities(
         validate_development_result(payload)
 
 
+def test_peak_working_set_covers_persistent_state() -> None:
+    payload = _result_payload()
+    resources = payload["resources"]
+    assert isinstance(resources, dict)
+    peak_working_set_bytes = resources["peak_working_set_bytes"]
+    assert isinstance(peak_working_set_bytes, int)
+    resources["persistent_bytes"] = peak_working_set_bytes + 1
+    with pytest.raises(ValueError, match="peak_working_set_bytes.*persistent_bytes"):
+        validate_development_result(payload)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
