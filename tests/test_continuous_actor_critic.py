@@ -123,6 +123,7 @@ def test_continuous_actor_critic_policy_gradient_sign() -> None:
     state = agent.init(feature_dim=1, key=jr.key(2)).replace(  # type: ignore[attr-defined]
         last_observation=obs,
         last_action=jnp.array([0.4], dtype=jnp.float32),  # action > mean (mean starts at 0)
+        last_sample=jnp.array([0.4], dtype=jnp.float32),
     )
     # critic V(s) = 0 since weights are zero, so td_error = reward = +1.0 > 0.
     result = agent.update(
@@ -148,6 +149,7 @@ def test_continuous_actor_critic_terminal_resets_traces() -> None:
     state = agent.init(feature_dim=2, key=jr.key(3)).replace(  # type: ignore[attr-defined]
         last_observation=jnp.array([1.0, 0.5], dtype=jnp.float32),
         last_action=jnp.array([0.1, -0.1], dtype=jnp.float32),
+        last_sample=jnp.array([0.1, -0.1], dtype=jnp.float32),
         mean_trace_weights=jnp.ones((2, 2), dtype=jnp.float32),
         mean_trace_bias=jnp.ones((2,), dtype=jnp.float32),
         log_sigma_trace=jnp.ones((2,), dtype=jnp.float32),
@@ -197,6 +199,7 @@ def test_continuous_actor_critic_log_sigma_clipping() -> None:
     state = agent.init(feature_dim=1, key=jr.key(4)).replace(  # type: ignore[attr-defined]
         last_observation=obs,
         last_action=jnp.array([5.0], dtype=jnp.float32),
+        last_sample=jnp.array([5.0], dtype=jnp.float32),
     )
     result = agent.update(
         state,
@@ -500,6 +503,7 @@ def test_continuous_actor_critic_terminal_does_not_multiply_inf_next_value() -> 
     state = agent.init(feature_dim=2, key=jr.key(1)).replace(  # type: ignore[attr-defined]
         last_observation=jnp.array([0.0, 1.0], dtype=jnp.float32),
         last_action=jnp.array([0.0], dtype=jnp.float32),
+        last_sample=jnp.array([0.0], dtype=jnp.float32),
         critic_weights=jnp.array([huge, 0.0], dtype=jnp.float32),
         critic_bias=jnp.array(0.0, dtype=jnp.float32),
     )
@@ -666,3 +670,126 @@ def test_continuous_actor_critic_state_contract_and_counter_saturation() -> None
     )
     assert bool(result.update_applied)
     assert int(result.state.step_count) == 2**31 - 1
+
+
+def _clip_at_mean_agent(action_high: float | None) -> ContinuousActorCriticAgent:
+    # sigma frozen at 1, critic frozen at 0, gamma 0: every update has td_error == reward
+    # and the actor mean step is exactly ``actor_step_size * reward * score_mu``.
+    return ContinuousActorCriticAgent(
+        ContinuousActorCriticConfig(
+            action_dim=1,
+            gamma=0.0,
+            actor_step_size=1.0,
+            critic_step_size=0.0,
+            actor_lamda=0.0,
+            critic_lamda=0.0,
+            log_sigma_init=0.0,
+            log_sigma_min=0.0,
+            log_sigma_max=0.0,
+            action_low=None,
+            action_high=action_high,
+        )
+    )
+
+
+def test_continuous_actor_critic_scores_the_gaussian_sample_not_the_clipped_action() -> None:
+    """Clipping changes the executed action, never the policy-gradient step.
+
+    The actor distribution is ``N(mu, sigma^2)``. With the same RNG key the
+    unclipped agent and the agent clipped at ``action_high == mu`` draw the
+    same Gaussian sample, so their actor updates must be identical even though
+    half of the clipped agent's executed actions are pinned to the bound.
+    """
+    obs = jnp.zeros((1,), dtype=jnp.float32)
+    free = _clip_at_mean_agent(None)
+    clipped = _clip_at_mean_agent(0.0)
+    saw_clipped_sample = False
+    for seed in range(12):
+        free_state, free_action, _, _ = free.start(free.init(1, jr.key(seed)), obs)
+        clip_state, clip_action, _, _ = clipped.start(clipped.init(1, jr.key(seed)), obs)
+        np.testing.assert_array_equal(clip_state.last_sample, free_state.last_sample)
+        np.testing.assert_array_equal(free_state.last_action, free_state.last_sample)
+        assert float(clip_action[0]) <= 0.0
+        if float(free_action[0]) > 0.0:
+            saw_clipped_sample = True
+            assert float(clip_action[0]) == 0.0
+            assert float(clip_state.last_action[0]) == 0.0
+        free_result = free.update(free_state, jnp.float32(1.0), obs, discount=jnp.float32(0.0))
+        clip_result = clipped.update(
+            clip_state, jnp.float32(1.0), obs, discount=jnp.float32(0.0)
+        )
+        np.testing.assert_array_equal(clip_result.state.mean_bias, free_result.state.mean_bias)
+        np.testing.assert_array_equal(clip_result.state.log_sigma, free_result.state.log_sigma)
+        np.testing.assert_array_equal(
+            clip_result.state.mean_trace_bias, free_result.state.mean_trace_bias
+        )
+    assert saw_clipped_sample
+
+
+def test_continuous_actor_critic_clipped_mean_does_not_drift_under_uninformative_reward() -> None:
+    """``E[grad_mu log pi] = 0`` must survive an active action bound.
+
+    With a constant reward the true policy gradient is zero. Scoring the clipped
+    action instead of the sample gives ``E[step] = -1/sqrt(2*pi)`` when the bound
+    sits at the mean, so the mean is pushed away from the bound by a term that
+    carries no policy information.
+    """
+    agent = _clip_at_mean_agent(0.0)
+    obs = jnp.zeros((1,), dtype=jnp.float32)
+
+    def one(key: jax.Array) -> tuple[jax.Array, jax.Array]:
+        state = agent.init(1, key)
+        state, action, _, _ = agent.start(state, obs)
+        result = agent.update(state, jnp.float32(1.0), obs, discount=jnp.float32(0.0))
+        return result.state.mean_bias[0], action[0]
+
+    n = 4096
+    steps, actions = jax.vmap(one)(jr.split(jr.key(7), n))
+    assert float(jnp.mean(actions == 0.0)) == pytest.approx(0.5, abs=0.05)
+    mean_step = float(jnp.mean(steps))
+    standard_error = float(jnp.std(steps)) / np.sqrt(n)
+    # The clipped-action score sits ~40 standard errors below zero.
+    assert abs(mean_step) < 5.0 * standard_error
+
+
+def test_continuous_actor_critic_fixed_actions_are_scored_as_samples() -> None:
+    """A caller-supplied action is the only sample available, so it is scored as such.
+
+    The scan must reproduce the sequence of manual updates whose stored sample is
+    the supplied (possibly out-of-bounds) action, not a clipped or zero sample.
+    """
+    agent = ContinuousActorCriticAgent(
+        ContinuousActorCriticConfig(action_dim=1, action_low=-0.5, action_high=0.5)
+    )
+    state = agent.init(2, jr.key(0))
+    observations = jnp.array([[1.0, 0.5], [0.2, -1.0], [-0.7, 0.3]], dtype=jnp.float32)
+    next_observations = jnp.roll(observations, -1, axis=0)
+    actions = jnp.array([[0.9], [-0.2], [0.3]], dtype=jnp.float32)
+    rewards = jnp.array([1.0, -0.5, 0.25], dtype=jnp.float32)
+    discounts = jnp.full((3,), 0.9, dtype=jnp.float32)
+    result = run_continuous_actor_critic_from_arrays(
+        agent,
+        state,
+        observations,
+        actions=actions,
+        rewards=rewards,
+        terminated=None,
+        next_observations=next_observations,
+        discounts=discounts,
+    )
+    np.testing.assert_array_equal(result.actions, actions)
+
+    manual = state
+    for step in range(3):
+        started = manual.replace(  # type: ignore[attr-defined]
+            last_observation=observations[step],
+            last_action=actions[step],
+            last_sample=actions[step],
+        )
+        manual = agent.update(
+            started, rewards[step], next_observations[step], discount=discounts[step]
+        ).state
+    np.testing.assert_array_equal(result.state.mean_weights, manual.mean_weights)
+    np.testing.assert_array_equal(result.state.mean_bias, manual.mean_bias)
+    np.testing.assert_array_equal(result.state.log_sigma, manual.log_sigma)
+    assert float(jnp.abs(result.state.mean_bias[0])) > 0.0

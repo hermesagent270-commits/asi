@@ -202,8 +202,9 @@ def test_discrete_scan_working_set_formula_has_exact_byte_boundary() -> None:
 
 
 def test_continuous_scan_working_set_formula_has_exact_byte_boundary() -> None:
-    # Two 60-byte carry trees plus a 976-byte reusable workspace.
-    last_legal = (2**31 - 1 - 1_096) // 42
+    # Two 64-byte carry trees (the Gaussian sample is retained beside the
+    # executed action) plus a 1008-byte reusable workspace.
+    last_legal = (2**31 - 1 - 1_136) // 42
     actor_critic_module._require_continuous_scan_resources(
         action_dim=1, feature_dim=1, num_steps=last_legal
     )
@@ -217,7 +218,7 @@ def test_continuous_scan_working_set_formula_has_exact_byte_boundary() -> None:
     ("continuous", "exact_bytes"),
     [
         (False, 4_410),
-        (True, 5_022),
+        (True, 5_142),
     ],
 )
 def test_scan_working_set_formula_covers_multidimensional_terms(
