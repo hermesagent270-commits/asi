@@ -15,11 +15,15 @@ resolved package/runtime versions in `IsolatedRuntimeIdentity`.
 
 The qualification smoke traverses all 20 official tasks for two steps each with
 the fixed float32 zero action. The evaluator may record the task index, boundary,
-and name; no learner exists and no task or boundary information reaches a learner.
-The receipt binds observation, reward, success, and task-index traces; charges the
-fixed action's 16 persistent bytes and the externally measured simulator numeric
-state; records 40 environment steps, zero updates/data steps/model queries, and
-telemetry-only timing; and retains supported, rejected, and inconclusive outcomes.
+and name. The official `OneHotAdder` appends the 20-way CW20 sequence index to
+each 12-dimensional Meta-World observation, so a future learner receives both
+privileged task identity and an observable task-boundary change. The host rejects
+traces whose observation tail is not the exact one-hot encoding of the bound
+task-index schedule. The receipt binds observation, reward, success, and
+task-index traces; charges the fixed action's 16 persistent bytes and the
+externally measured simulator numeric state; records 40 environment steps, zero
+updates/data steps/model queries, and telemetry-only timing; and retains
+supported, rejected, and inconclusive outcomes.
 
 Before any development comparison, the real legacy image must execute this smoke
 and its receipt must validate. A learning lane must then add matched frozen seeds,

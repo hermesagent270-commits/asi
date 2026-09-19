@@ -16,7 +16,7 @@ from typing import SupportsIndex, cast
 
 import numpy as np
 
-SCHEMA = "asi.continual-world.fixed-action-smoke.v1"
+SCHEMA = "asi.continual-world.fixed-action-smoke.v2"
 PAPER_REVISION = "arXiv:2105.10919v3"
 OFFICIAL_COMMIT = "73f63bb4fa0b5d00bda973e20dfb783bfcf1b8aa"
 METAWORLD_COMMIT = "0875192baaa91c43523708f55866d98eaf3facaf"
@@ -38,6 +38,9 @@ CW10_TASKS = (
 )
 CW20_TASKS = CW10_TASKS + CW10_TASKS
 FIXED_ACTION = (0.0, 0.0, 0.0, 0.0)
+METAWORLD_OBSERVATION_DIM = 12
+CW20_TASK_ONE_HOT_DIM = len(CW20_TASKS)
+CW20_OBSERVATION_DIM = METAWORLD_OBSERVATION_DIM + CW20_TASK_ONE_HOT_DIM
 _MAX_BYTES = 1 << 30
 _INT32_MAX = 2**31 - 1
 
@@ -134,8 +137,12 @@ class ContinualWorldSmokePlan:
             "fixed_action": list(FIXED_ACTION),
             "allowed_boundary_information": ["evaluator_task_index", "evaluator_task_boundary"],
             "allowed_task_information": ["evaluator_task_name"],
-            "learner_boundary_information": [],
-            "learner_task_information": [],
+            "learner_boundary_information": [
+                "observation_tail_one_hot_changes_at_task_boundary"
+            ],
+            "learner_task_information": [
+                "observation_tail_one_hot_cw20_sequence_index"
+            ],
             "development_only": True,
             "scientific_promotion_allowed": False,
         }
@@ -250,7 +257,12 @@ def build_smoke_receipt(
     horizon = len(CW20_TASKS) * plan.steps_per_task
     arrays = (
         ("actions", actions, np.dtype(np.float32), (horizon, 4)),
-        ("observations", observations, np.dtype(np.float32), (horizon, 32)),
+        (
+            "observations",
+            observations,
+            np.dtype(np.float32),
+            (horizon, CW20_OBSERVATION_DIM),
+        ),
         ("rewards", rewards, np.dtype(np.float32), (horizon,)),
         ("successes", successes, np.dtype(np.bool_), (horizon,)),
         ("task_indices", task_indices, np.dtype(np.int32), (horizon,)),
@@ -266,9 +278,15 @@ def build_smoke_receipt(
     expected_actions = np.zeros((horizon, 4), dtype=np.float32)
     if not np.array_equal(snapshots["actions"], expected_actions):
         raise ValueError("actions do not match the exact fixed-action mechanism-off schedule")
-    expected_indices = np.repeat(np.arange(20, dtype=np.int32), plan.steps_per_task)
+    expected_indices = np.repeat(
+        np.arange(len(CW20_TASKS), dtype=np.int32), plan.steps_per_task
+    )
     if not np.array_equal(snapshots["task_indices"], expected_indices):
         raise ValueError("task_indices do not follow the exact CW20 boundary schedule")
+    expected_task_tail = np.eye(CW20_TASK_ONE_HOT_DIM, dtype=np.float32)[expected_indices]
+    actual_task_tail = snapshots["observations"][:, METAWORLD_OBSERVATION_DIM:]
+    if not np.array_equal(actual_task_tail, expected_task_tail):
+        raise ValueError("observations do not contain the official one-hot task tail")
     return ContinualWorldSmokeReceipt(
         schema=SCHEMA,
         plan=plan,

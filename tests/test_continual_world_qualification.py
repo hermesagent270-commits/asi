@@ -7,7 +7,10 @@ import numpy as np
 import pytest
 
 from alberta_framework.benchmarks.continual_world_qualification import (
+    CW20_OBSERVATION_DIM,
     CW20_TASKS,
+    METAWORLD_OBSERVATION_DIM,
+    SCHEMA,
     ContinualWorldSmokePlan,
     IsolatedRuntimeIdentity,
     build_smoke_receipt,
@@ -16,6 +19,16 @@ from alberta_framework.benchmarks.continual_world_qualification import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def _official_observations(plan: ContinualWorldSmokePlan) -> np.ndarray:
+    horizon = len(CW20_TASKS) * plan.steps_per_task
+    indices = np.repeat(
+        np.arange(len(CW20_TASKS), dtype=np.int32), plan.steps_per_task
+    )
+    observations = np.zeros((horizon, CW20_OBSERVATION_DIM), dtype=np.float32)
+    observations[np.arange(horizon), METAWORLD_OBSERVATION_DIM + indices] = 1.0
+    return observations
 
 
 @pytest.fixture
@@ -39,10 +52,12 @@ def receipt(runtime: IsolatedRuntimeIdentity):
     return build_smoke_receipt(
         plan,
         actions=np.zeros((horizon, 4), dtype=np.float32),
-        observations=np.zeros((horizon, 32), dtype=np.float32),
+        observations=_official_observations(plan),
         rewards=np.zeros((horizon,), dtype=np.float32),
         successes=np.zeros((horizon,), dtype=np.bool_),
-        task_indices=np.repeat(np.arange(20, dtype=np.int32), plan.steps_per_task),
+        task_indices=np.repeat(
+            np.arange(len(CW20_TASKS), dtype=np.int32), plan.steps_per_task
+        ),
         persistent_environment_numeric_bytes=4096,
         timing_ns=10,
         outcome="inconclusive",
@@ -52,13 +67,38 @@ def receipt(runtime: IsolatedRuntimeIdentity):
 def test_protocol_pins_official_sequence_sources_and_nonpromotion(runtime) -> None:
     plan = ContinualWorldSmokePlan(runtime=runtime)
     payload = plan.payload()
+    assert SCHEMA == "asi.continual-world.fixed-action-smoke.v2"
     assert len(CW20_TASKS) == 20
     assert CW20_TASKS[:10] == CW20_TASKS[10:]
     assert payload["paper_revision"] == "arXiv:2105.10919v3"
     assert payload["official_commit"] == "73f63bb4fa0b5d00bda973e20dfb783bfcf1b8aa"
     assert payload["metaworld_commit"] == "0875192baaa91c43523708f55866d98eaf3facaf"
-    assert payload["learner_boundary_information"] == []
+    assert payload["learner_boundary_information"] == [
+        "observation_tail_one_hot_changes_at_task_boundary"
+    ]
+    assert payload["learner_task_information"] == [
+        "observation_tail_one_hot_cw20_sequence_index"
+    ]
     assert payload["scientific_promotion_allowed"] is False
+
+
+def test_trace_builder_rejects_missing_official_task_one_hot(runtime) -> None:
+    plan = ContinualWorldSmokePlan(runtime=runtime)
+    horizon = len(CW20_TASKS) * plan.steps_per_task
+    with pytest.raises(ValueError, match="one-hot task tail"):
+        build_smoke_receipt(
+            plan,
+            actions=np.zeros((horizon, 4), dtype=np.float32),
+            observations=np.zeros((horizon, CW20_OBSERVATION_DIM), dtype=np.float32),
+            rewards=np.zeros(horizon, dtype=np.float32),
+            successes=np.zeros(horizon, dtype=np.bool_),
+            task_indices=np.repeat(
+                np.arange(len(CW20_TASKS), dtype=np.int32), plan.steps_per_task
+            ),
+            persistent_environment_numeric_bytes=1,
+            timing_ns=0,
+            outcome="rejected",
+        )
 
 
 def test_fixed_action_receipt_is_exact_mechanism_off_and_round_trips(receipt) -> None:
@@ -74,8 +114,8 @@ def test_fixed_action_receipt_is_exact_mechanism_off_and_round_trips(receipt) ->
 def test_trace_builder_snapshots_and_rejects_wrong_boundary_schedule(runtime) -> None:
     plan = ContinualWorldSmokePlan(runtime=runtime)
     horizon = 40
-    observations = np.zeros((horizon, 32), dtype=np.float32)
-    task_indices = np.repeat(np.arange(20, dtype=np.int32), 2)
+    observations = _official_observations(plan)
+    task_indices = np.repeat(np.arange(len(CW20_TASKS), dtype=np.int32), 2)
     receipt = build_smoke_receipt(
         plan,
         actions=np.zeros((horizon, 4), dtype=np.float32),
@@ -95,7 +135,7 @@ def test_trace_builder_snapshots_and_rejects_wrong_boundary_schedule(runtime) ->
         build_smoke_receipt(
             plan,
             actions=np.zeros((horizon, 4), dtype=np.float32),
-            observations=np.zeros((horizon, 32), dtype=np.float32),
+            observations=_official_observations(plan),
             rewards=np.zeros(horizon, dtype=np.float32),
             successes=np.zeros(horizon, dtype=np.bool_),
             task_indices=task_indices,
@@ -109,10 +149,10 @@ def test_trace_builder_snapshots_and_rejects_wrong_boundary_schedule(runtime) ->
         build_smoke_receipt(
             plan,
             actions=hostile_actions,
-            observations=np.zeros((horizon, 32), dtype=np.float32),
+            observations=_official_observations(plan),
             rewards=np.zeros(horizon, dtype=np.float32),
             successes=np.zeros(horizon, dtype=np.bool_),
-            task_indices=np.repeat(np.arange(20, dtype=np.int32), 2),
+            task_indices=np.repeat(np.arange(len(CW20_TASKS), dtype=np.int32), 2),
             persistent_environment_numeric_bytes=1,
             timing_ns=0,
             outcome="rejected",
