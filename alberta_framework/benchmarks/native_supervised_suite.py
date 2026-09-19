@@ -329,31 +329,41 @@ class SuiteResult:
     task_information_used_by_learner: bool = False
 
     def __post_init__(self) -> None:
-        if self.schema != SCHEMA or self.seed not in FROZEN_SEEDS:
-            raise ValueError("schema or frozen seed mismatch")
+        if type(self.schema) is not str or self.schema != SCHEMA:
+            raise ValueError("schema must match the exact native-suite schema")
+        seed = _exact_int(self.seed, "seed", 0, 2**32 - 1)
+        if seed not in FROZEN_SEEDS:
+            raise ValueError("seed is outside the frozen development schedule")
         spec = benchmark_spec(self.benchmark_id)
         _exact_int(self.examples_per_task, "examples_per_task", 1, MAX_EXAMPLES_PER_TASK)
         _exact_int(self.replay_capacity, "replay_capacity", 1, 64)
         _exact_int(self.input_dim, "input_dim", 1, MAX_INPUT_DIM)
-        if self.n_classes != spec.n_classes:
+        n_classes = _exact_int(self.n_classes, "n_classes", 2, 100)
+        if n_classes != spec.n_classes:
             raise ValueError("class count differs from the catalog")
         for name in ("dataset_sha256", "schedule_sha256", "source_sha256"):
             _digest(getattr(self, name), name)
         if self.source_sha256 != _source_sha256():
             raise ValueError("current ASI source identity drift")
+        if (
+            type(self.runtime_identity) is not tuple
+            or len(self.runtime_identity) != 4
+            or any(type(value) is not str for value in self.runtime_identity)
+        ):
+            raise ValueError("runtime identity must be an exact four-string tuple")
         if self.runtime_identity != _runtime_identity():
             raise ValueError("current runtime identity drift")
         if type(self.arms) is not tuple or any(type(arm) is not ArmResult for arm in self.arms):
             raise ValueError("arms must contain exact ArmResult values")
         if tuple(arm.arm_id for arm in self.arms) != ARM_IDS:
             raise ValueError("arms differ from the frozen roster")
-        flags = (
-            self.development_only,
-            not self.scientific_promotion_allowed,
-            self.negative_results_must_be_retained,
-            not self.task_information_used_by_learner,
+        policy = (
+            (self.development_only, True),
+            (self.scientific_promotion_allowed, False),
+            (self.negative_results_must_be_retained, True),
+            (self.task_information_used_by_learner, False),
         )
-        if any(type(flag) is not bool or not flag for flag in flags):
+        if any(type(value) is not bool or value is not expected for value, expected in policy):
             raise ValueError("result must remain nonpromoting, retained, and task-agnostic")
 
 
