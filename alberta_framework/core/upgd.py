@@ -1948,19 +1948,51 @@ class UPGDLearner:
         error: Array,
         kappa: Array,
     ) -> tuple[tuple[Array, ...], Array]:
-        """Apply ObGD global step bounding with a dynamic kappa."""
+        """Apply ObGD global step bounding to steps that already carry the error.
+
+        Published ObGD (Elsayed et al. 2024) bounds with
+        ``M = alpha * kappa * max(|delta|, 1) * ||z||_1`` where ``z`` is the
+        error-free prediction gradient. UPGD forms its steps as
+        ``alpha * delta * z`` before bounding, so ``sum|steps|`` is
+        ``alpha * |delta| * ||z||_1`` and the published bound in terms of
+        those steps is ``kappa * sum|steps| / min(|delta|, 1)``. Feeding
+        ``|delta|`` back in as a second factor would count the error twice.
+        The scale is written as ``m / max(kappa * total, m)`` with
+        ``m = min(|delta|, 1)`` so it cannot overflow for tiny errors; a zero
+        error carries zero steps, where the bound is moot.
+        """
         error_scalar = jnp.squeeze(error)
         total_step = jnp.array(0.0, dtype=jnp.float32)
         for step in steps:
             total_step = total_step + jnp.sum(jnp.abs(step))
-        delta_bar = jnp.maximum(jnp.abs(error_scalar), 1.0)
-        bound_magnitude = kappa * delta_bar * total_step
-        scale = 1.0 / jnp.maximum(bound_magnitude, 1.0)
+        abs_error = jnp.abs(error_scalar)
+        error_unit = jnp.where(abs_error > 0.0, jnp.minimum(abs_error, 1.0), 1.0)
+        scale = error_unit / jnp.maximum(kappa * total_step, error_unit)
         collapsed = scale == 0
         return (
             tuple(zero_if_collapsed_infinity(scale * step, step, collapsed) for step in steps),
             scale,
         )
+
+    def _bound_error_carrying_steps(
+        self,
+        steps: tuple[Array, ...],
+        error: Array,
+        params: tuple[Array, ...],
+    ) -> tuple[tuple[Array, ...], Array]:
+        """Bound steps that already contain the prediction error.
+
+        ``ObGDBounding`` takes the exact published form through
+        :meth:`_obgd_bound_with_kappa`. Any other bounder receives the
+        pseudo-error ``1.0``, the same convention ``MultiHeadMLPLearner`` uses
+        for its error-in-gradient trunk steps, so the error is never applied
+        a second time.
+        """
+        assert self._bounder is not None
+        if type(self._bounder) is ObGDBounding:
+            kappa = jnp.asarray(self._bounder.to_config()["kappa"], dtype=jnp.float32)
+            return self._obgd_bound_with_kappa(steps, error, kappa)
+        return self._bounder.bound(steps, jnp.array(1.0, dtype=jnp.float32), params)
 
     @staticmethod
     def _tuple_dot(xs: tuple[Array, ...], ys: tuple[Array, ...]) -> Array:
@@ -2625,9 +2657,9 @@ class UPGDLearner:
                     all_params.append(state.readout_fast_head_params.weights[i])
                     all_params.append(state.readout_fast_head_params.biases[i])
 
-            # Use a representative error scalar: mean absolute error across
-            # active heads (matches conventions used elsewhere when bounding
-            # outside the per-head error multiplication).
+            # Representative error scalar: mean absolute error across active
+            # heads. The steps below already carry the error, so the bound
+            # must consume it exactly once (see _bound_error_carrying_steps).
             errors_for_bound = jnp.where(active_mask, predictions - safe_targets, 0.0)
             mean_abs_err = jnp.sum(jnp.abs(errors_for_bound)) / n_active
 
@@ -2667,7 +2699,7 @@ class UPGDLearner:
                     effective_kappa,
                 )
             else:
-                bounded_steps, _scale = self._bounder.bound(
+                bounded_steps, _scale = self._bound_error_carrying_steps(
                     tuple(all_steps), mean_abs_err, tuple(all_params)
                 )
             # Unpack
@@ -2727,7 +2759,7 @@ class UPGDLearner:
                         effective_kappa,
                     )
                 else:
-                    bounded_fast_steps, _fast_scale = self._bounder.bound(
+                    bounded_fast_steps, _fast_scale = self._bound_error_carrying_steps(
                         tuple(fast_steps),
                         mean_abs_err,
                         tuple(fast_params),
