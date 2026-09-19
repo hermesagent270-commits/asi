@@ -176,10 +176,20 @@ class CORADevelopmentResult:
     cora_parity_claimed: bool = False
 
     def __post_init__(self) -> None:
-        if self.schema != SCHEMA or self.seed not in FROZEN_SEEDS:
-            raise ValueError("schema or frozen seed mismatch")
-        if self.paper_revision != PAPER or self.official_code_revision != OFFICIAL_CODE:
-            raise ValueError("external source revision mismatch")
+        if (
+            type(self.schema) is not str
+            or self.schema != SCHEMA
+            or type(self.seed) is not int
+            or self.seed not in FROZEN_SEEDS
+        ):
+            raise ValueError("schema or frozen seed identity mismatch")
+        if (
+            type(self.paper_revision) is not str
+            or self.paper_revision != PAPER
+            or type(self.official_code_revision) is not str
+            or self.official_code_revision != OFFICIAL_CODE
+        ):
+            raise ValueError("external source identity mismatch")
         current_source = _runner_source_sha256()
         if (
             type(self.runner_source_sha256) is not str
@@ -189,21 +199,27 @@ class CORADevelopmentResult:
             raise ValueError("runner source identity mismatch")
         _exact_int(self.steps_per_task, "steps_per_task", 1, MAX_STEPS_PER_TASK)
         _exact_int(self.replay_capacity, "replay_capacity", 1, 64)
-        if self.task_targets != TASK_TARGETS or self.cycles != N_CYCLES:
+        if (
+            type(self.task_targets) is not tuple
+            or any(type(target) is not int for target in self.task_targets)
+            or self.task_targets != TASK_TARGETS
+            or type(self.cycles) is not int
+            or self.cycles != N_CYCLES
+        ):
             raise ValueError("task sequence differs from the frozen analogue")
         if type(self.arms) is not tuple or any(type(arm) is not ArmResult for arm in self.arms):
             raise ValueError("arms must contain exact ArmResult values")
         if tuple(arm.arm_id for arm in self.arms) != ARM_IDS:
             raise ValueError("arms differ from the frozen roster")
         flags = (
-            self.task_boundaries_available_to_runner,
-            not self.task_ids_available_to_candidate,
-            self.development_only,
-            not self.scientific_promotion_allowed,
-            self.negative_results_must_be_retained,
-            not self.cora_parity_claimed,
+            (self.task_boundaries_available_to_runner, True),
+            (self.task_ids_available_to_candidate, False),
+            (self.development_only, True),
+            (self.scientific_promotion_allowed, False),
+            (self.negative_results_must_be_retained, True),
+            (self.cora_parity_claimed, False),
         )
-        if any(type(flag) is not bool or not flag for flag in flags):
+        if any(type(value) is not bool or value is not expected for value, expected in flags):
             raise ValueError("information and nonpromotion contract mismatch")
 
 
