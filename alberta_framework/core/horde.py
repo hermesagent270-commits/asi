@@ -142,7 +142,7 @@ class HordeUpdateResult:
         predictions: Predictions from all demons, shape ``(n_demons,)``
         td_errors: TD errors (target - prediction), shape ``(n_demons,)``.
             NaN for inactive demons.
-        td_targets: Computed TD targets ``r + gamma * V(s')``,
+        td_targets: Computed TD targets ``r + gamma * V(s') + (1 - gamma) * z``,
             shape ``(n_demons,)``. NaN for inactive demons.
         per_demon_metrics: Per-demon metrics, shape ``(n_demons, 3)``.
             Columns: ``[squared_error, raw_error, mean_step_size]``.
@@ -306,6 +306,9 @@ class HordeLearner:
             step_size, sparsity, leaky_relu_slope, use_layer_norm
         )
         self._horde_spec = horde_spec
+        self._terminal_rewards = jnp.array(
+            [demon.terminal_reward for demon in horde_spec.demons], dtype=jnp.float32
+        )
         self._hidden_sizes = hidden_sizes
         self._step_size = step_size
         self._sparsity = sparsity
@@ -467,9 +470,10 @@ class HordeLearner:
     ) -> HordeUpdateResult:
         """Update Horde given observation, cumulants, and next observation.
 
-        Computes TD targets ``r + gamma * V(s')`` for each demon, then
-        delegates to ``MultiHeadMLPLearner.update()``. For gamma=0 demons,
-        the target equals the cumulant.
+        Computes TD targets ``r + gamma * V(s') + (1 - gamma) * z`` for each
+        demon, where ``z`` is the demon's ``terminal_reward``, then delegates
+        to ``MultiHeadMLPLearner.update()``. For gamma=0 demons, the target
+        equals the cumulant plus ``z``.
 
         Args:
             state: Current state
@@ -494,12 +498,13 @@ class HordeLearner:
         # 1. Compute V(s') for bootstrapping
         next_preds = self._learner.predict(state, next_observation)
 
-        # 2. TD targets: r + gamma * V(s')
-        # For gamma=0 demons: target = cumulant (single-step prediction)
+        # 2. TD targets: r + gamma * V(s') + (1 - gamma) * z, where z is the
+        # demon's terminal pseudo-reward (Sutton et al. 2011).
+        # For gamma=0 demons: target = cumulant + z (single-step prediction)
         # NaN cumulants stay NaN (inactive demons)
         gammas = self._horde_spec.gammas
         bootstrap = jnp.where(gammas == 0.0, 0.0, gammas * next_preds)
-        targets = cumulants + bootstrap
+        targets = cumulants + bootstrap + (1.0 - gammas) * self._terminal_rewards
         requested = ~jnp.isnan(cumulants)
         head_inputs_valid = requested & jnp.isfinite(cumulants) & jnp.isfinite(targets)
         safe_targets = jnp.where(head_inputs_valid, targets, jnp.nan)
@@ -582,7 +587,7 @@ class HordeLearner:
 
         next_preds = self._learner.predict(state, next_observation)
         bootstrap = jnp.where(discounts == 0.0, 0.0, discounts * next_preds)
-        targets = cumulants + bootstrap
+        targets = cumulants + bootstrap + (1.0 - discounts) * self._terminal_rewards
         requested = ~jnp.isnan(cumulants)
         head_inputs_valid = (
             requested
