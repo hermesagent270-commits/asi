@@ -243,7 +243,10 @@ def feature_to_subtask_specs(
     opt_q = oak_state.stomp_state.option_policies.q_weights      # (n_opts, n_prim, obs_dim)
     opt_q_abs = jnp.abs(opt_q)
     obs_dim = int(opt_q.shape[-1])
-    opt_importance = jnp.max(opt_q_abs.reshape(-1, obs_dim), axis=0)  # (obs_dim,)
+    # ``initial=0.0`` is the exact identity for absolute values, so an agent
+    # with no options yet ranks by its base Q-weights alone instead of
+    # reducing over an empty axis.
+    opt_importance = jnp.max(opt_q_abs.reshape(-1, obs_dim), axis=0, initial=0.0)
 
     combined = jnp.maximum(feature_importance, opt_importance)
     n = min(normalized_n_subtasks, obs_dim)
@@ -7939,7 +7942,8 @@ class PrototypeAgent:
         """Return candidate subtask specs ranked by current Q-weight importance.
 
         Delegates to :func:`feature_to_subtask_specs` using the threshold,
-        scale, and max-step settings from the first existing subtask spec.
+        scale, and max-step settings from the first existing subtask spec, or
+        that function's defaults when the agent has no subtask specs yet.
 
         Args:
             state: Current agent state.
@@ -7948,7 +7952,13 @@ class PrototypeAgent:
         Returns:
             Tuple of :class:`SubtaskSpec` instances ranked by importance.
         """
-        template = self._config.oak.stomp.subtask_specs[0]
+        specs = self._config.oak.stomp.subtask_specs
+        if len(specs) == 0:
+            return feature_to_subtask_specs(
+                self._oak_component_state(state.oak_state),
+                n_subtasks=n_subtasks,
+            )
+        template = specs[0]
         return feature_to_subtask_specs(
             self._oak_component_state(state.oak_state),
             n_subtasks=n_subtasks,

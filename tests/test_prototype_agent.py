@@ -918,6 +918,33 @@ class TestFeatureToSubtaskSpecs:
 
         assert len(specs) == OBS_DIM
 
+    def test_zero_option_agent_ranks_by_base_q_alone(self) -> None:
+        """An option-less agent is exactly the one that needs its first subtasks.
+
+        With ``subtask_specs=()`` the option Q-weights have shape
+        ``(0, n_prim, obs_dim)``; the option-importance reduction has no
+        identity and must not raise, and ``auto_subtask_specs`` must not index
+        a first spec that does not exist.
+        """
+        agent = PrototypeAgent(PrototypeAgentConfig(oak=_oak_cfg(specs=())))
+        state = agent.init(jr.key(0))
+        bls = state.oak_state.stomp_state.base_learner_state
+        base_q = jnp.stack([w[0] for w in bls.head_params.weights])
+        expected = sorted(
+            range(OBS_DIM),
+            key=lambda i: float(jnp.max(jnp.abs(base_q[:, i]))),
+            reverse=True,
+        )[:2]
+
+        specs = feature_to_subtask_specs(state.oak_state, n_subtasks=2)
+        assert [spec.feature_index for spec in specs] == expected
+
+        auto = agent.auto_subtask_specs(state, n_subtasks=2)
+        assert [spec.feature_index for spec in auto] == expected
+        assert all(spec.threshold == 0.5 for spec in auto)
+        assert all(spec.pseudo_reward_scale == 1.0 for spec in auto)
+        assert all(spec.max_option_steps == 20 for spec in auto)
+
     def test_returns_correct_count(self) -> None:
         agent = PrototypeAgent(_minimal_config())
         state = agent.init(jr.key(0))
