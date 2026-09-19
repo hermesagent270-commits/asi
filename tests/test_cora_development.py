@@ -10,7 +10,11 @@ from alberta_framework.benchmarks.cora_development import (
     ARM_IDS,
     CORA_CATALOG,
     FROZEN_SEEDS,
+    N_CYCLES,
     OFFICIAL_CODE,
+    PAPER,
+    SCHEMA,
+    TASK_TARGETS,
     catalog_payload,
     main,
     run_cora_development,
@@ -18,6 +22,14 @@ from alberta_framework.benchmarks.cora_development import (
 )
 
 pytestmark = pytest.mark.integration
+
+
+class _StringSubclass(str):
+    pass
+
+
+class _TupleSubclass(tuple[int, ...]):
+    pass
 
 
 def test_end_to_end_slice_has_metrics_information_contract_and_exact_receipts() -> None:
@@ -90,6 +102,28 @@ def test_validator_rejects_promotion_metric_and_resource_forgery() -> None:
         validate_result(dataclasses.replace(result, arms=(forged_resource, *result.arms[1:])))
     with pytest.raises(ValueError, match="exact CORADevelopmentResult"):
         validate_result(dataclasses.asdict(result))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema", _StringSubclass(SCHEMA)),
+        ("paper_revision", _StringSubclass(PAPER)),
+        ("official_code_revision", _StringSubclass(OFFICIAL_CODE)),
+        ("task_targets", _TupleSubclass(TASK_TARGETS)),
+        ("task_targets", (False, 1, False)),
+        ("cycles", float(N_CYCLES)),
+        ("task_ids_available_to_candidate", None),
+        ("scientific_promotion_allowed", 0),
+        ("cora_parity_claimed", None),
+    ],
+)
+def test_validator_rejects_value_equal_noncanonical_identities_and_policy(
+    field: str, value: object
+) -> None:
+    result = run_cora_development(seed=FROZEN_SEEDS[0], steps_per_task=1)
+    with pytest.raises(ValueError, match="identity|sequence|information"):
+        validate_result(dataclasses.replace(result, **{field: value}))
 
 
 @pytest.mark.parametrize("seed", [True, -1, 0, FROZEN_SEEDS[-1] + 1])
