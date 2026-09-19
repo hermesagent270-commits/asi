@@ -32,10 +32,11 @@ replacement rates 1e-4, 1e-5, and 1e-6.
 `asi-plasticity-diagnostic` consumes a caller-supplied NPZ containing exactly
 `images` (float32 `[N,784]`, values in `[0,1]`) and `labels` (int32 `[N]`,
 values 0–9). It never downloads or writes data. Its development profile uses
-eight tasks, 64 examples per task, two hidden ReLU layers of width 64, learning
-rate 0.003, maturity 100, and replacement rate 1e-4. This is a mechanism
-diagnostic, not paper-scale parity: depth, width, task count, observations, and
-run count differ.
+eight tasks, 64 examples per task, three hidden ReLU layers of width 64, learning
+rate 0.003, maturity 100, and replacement rate 1e-4. The network now preserves
+the paper's three-hidden-layer topology while remaining a bounded mechanism
+diagnostic, not paper-scale parity: width, task count, observations, and run
+count differ.
 
 The matched roster is SGD, CBP with replacement disabled, and bounded CBP.
 Every arm gets identical Threefry-rooted permutations, example orders,
@@ -51,7 +52,10 @@ accumulation, and optimizer-state handling. This slice tests the causal
 replacement mechanism; it is not an exact port or parity result.
 
 Predictions are recorded before each online update. A second batched forward
-pass per task measures dead ReLU units and representation effective rank.
+pass per task measures dead ReLU units across all three hidden layers and
+representation effective rank at the third hidden layer. Replacement counts
+are retained both in total and per hidden layer, so the smoke contract proves
+that all three mechanism sites execute.
 Receipts count examples and bytes, prediction/diagnostic model queries,
 parameter updates, replacements, and numeric learner-state persistent bytes.
 The runner-owned Threefry cursor is outside that learner-state byte field;
@@ -89,8 +93,8 @@ while the current `Ant-v3` standard config says `n_steps: 1e8`. Runtime/MuJoCo
 versions, this step discrepancy, environment sequence, seeds, and budget remain
 unresolved; execution is blocked.
 
-Before any scientific comparison, reproduce the full three-layer, width-2,000,
-800-task MNIST protocol in a qualified accelerator runtime; verify the official
+Before any scientific comparison, reproduce the full width-2,000, 800-task
+MNIST protocol in a qualified accelerator runtime; verify the official
 CBP utility and replacement traces against the pinned code; add a from-scratch
 per-task ceiling and L2/shrink-and-perturb controls; freeze untouched seeds;
 and separate plasticity from retention. JIT parity and the bounded diagnostic

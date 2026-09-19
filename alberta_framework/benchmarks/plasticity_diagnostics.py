@@ -29,7 +29,7 @@ import jax.random as jr
 import numpy as np
 from jax import Array
 
-SCHEMA = "asi.loss_of_plasticity_mnist_development.v1"
+SCHEMA = "asi.loss_of_plasticity_mnist_development.v2"
 PAPER_REVISION = "arXiv:2306.13812v3"
 OFFICIAL_CODE_COMMIT = "a6b79580d85f3025bdb601566d3627c5f489f13b"
 FROZEN_SEEDS = (15830, 15831, 15832, 15833)
@@ -89,6 +89,199 @@ PROFILES: Mapping[str, DiagnosticProfile] = MappingProxyType({
 })
 
 
+class DiagnosticMLPState(NamedTuple):
+    w1: Array
+    b1: Array
+    w2: Array
+    b2: Array
+    w3: Array
+    b3: Array
+    w4: Array
+    b4: Array
+    utility1: Array
+    utility2: Array
+    utility3: Array
+    age1: Array
+    age2: Array
+    age3: Array
+    replacement_credit1: Array
+    replacement_credit2: Array
+    replacement_credit3: Array
+
+
+def _init_diagnostic_state(key: Array, width: int) -> DiagnosticMLPState:
+    k1, k2, k3, k4 = jr.split(key, 4)
+    w1 = jr.normal(k1, (INPUT_DIM, width), dtype=jnp.float32) * math.sqrt(2.0 / INPUT_DIM)
+    w2 = jr.normal(k2, (width, width), dtype=jnp.float32) * math.sqrt(2.0 / width)
+    w3 = jr.normal(k3, (width, width), dtype=jnp.float32) * math.sqrt(2.0 / width)
+    w4 = jr.normal(k4, (width, N_CLASSES), dtype=jnp.float32) * math.sqrt(2.0 / width)
+    zeros = jnp.zeros((width,), dtype=jnp.float32)
+    return DiagnosticMLPState(
+        w1,
+        zeros,
+        w2,
+        zeros,
+        w3,
+        zeros,
+        w4,
+        jnp.zeros((N_CLASSES,), dtype=jnp.float32),
+        zeros,
+        zeros,
+        zeros,
+        jnp.zeros((width,), dtype=jnp.int32),
+        jnp.zeros((width,), dtype=jnp.int32),
+        jnp.zeros((width,), dtype=jnp.int32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+    )
+
+
+def _forward_diagnostic(
+    state: DiagnosticMLPState, inputs: Array
+) -> tuple[Array, Array, Array, Array]:
+    hidden1 = jax.nn.relu(inputs @ state.w1 + state.b1)
+    hidden2 = jax.nn.relu(hidden1 @ state.w2 + state.b2)
+    hidden3 = jax.nn.relu(hidden2 @ state.w3 + state.b3)
+    return hidden3 @ state.w4 + state.b4, hidden1, hidden2, hidden3
+
+
+def _diagnostic_loss(
+    state: DiagnosticMLPState, inputs: Array, label: Array
+) -> tuple[Array, tuple[Array, Array, Array, Array]]:
+    logits, hidden1, hidden2, hidden3 = _forward_diagnostic(state, inputs)
+    return -jax.nn.log_softmax(logits)[label], (logits, hidden1, hidden2, hidden3)
+
+
+def _replace_diagnostic_first_layer(
+    state: DiagnosticMLPState, utility: Array, eligible: Array, key: Array
+) -> tuple[DiagnosticMLPState, Array]:
+    index = jnp.argmin(jnp.where(eligible, utility, jnp.inf))
+    incoming = jr.normal(key, (INPUT_DIM,), dtype=jnp.float32) * math.sqrt(2.0 / INPUT_DIM)
+    return state._replace(
+        w1=state.w1.at[:, index].set(incoming),
+        b1=state.b1.at[index].set(0.0),
+        w2=state.w2.at[index, :].set(0.0),
+        utility1=utility.at[index].set(0.0),
+        age1=state.age1.at[index].set(0),
+    ), jnp.asarray(1, dtype=jnp.int32)
+
+
+def _replace_diagnostic_second_layer(
+    state: DiagnosticMLPState, utility: Array, eligible: Array, key: Array
+) -> tuple[DiagnosticMLPState, Array]:
+    width = state.w2.shape[0]
+    index = jnp.argmin(jnp.where(eligible, utility, jnp.inf))
+    incoming = jr.normal(key, (width,), dtype=jnp.float32) * math.sqrt(2.0 / width)
+    return state._replace(
+        w2=state.w2.at[:, index].set(incoming),
+        b2=state.b2.at[index].set(0.0),
+        w3=state.w3.at[index, :].set(0.0),
+        utility2=utility.at[index].set(0.0),
+        age2=state.age2.at[index].set(0),
+    ), jnp.asarray(1, dtype=jnp.int32)
+
+
+def _replace_diagnostic_third_layer(
+    state: DiagnosticMLPState, utility: Array, eligible: Array, key: Array
+) -> tuple[DiagnosticMLPState, Array]:
+    width = state.w3.shape[0]
+    index = jnp.argmin(jnp.where(eligible, utility, jnp.inf))
+    incoming = jr.normal(key, (width,), dtype=jnp.float32) * math.sqrt(2.0 / width)
+    return state._replace(
+        w3=state.w3.at[:, index].set(incoming),
+        b3=state.b3.at[index].set(0.0),
+        w4=state.w4.at[index, :].set(0.0),
+        utility3=utility.at[index].set(0.0),
+        age3=state.age3.at[index].set(0),
+    ), jnp.asarray(1, dtype=jnp.int32)
+
+
+@jax.jit
+def _diagnostic_step(
+    state: DiagnosticMLPState,
+    inputs: Array,
+    label: Array,
+    key: Array,
+    learning_rate: Array,
+    replacement_rate: Array,
+    maturity_threshold: Array,
+) -> tuple[DiagnosticMLPState, Array, Array, tuple[Array, Array, Array]]:
+    (loss, (logits, hidden1, hidden2, hidden3)), gradients = jax.value_and_grad(
+        _diagnostic_loss, has_aux=True, allow_int=True
+    )(state, inputs, label)
+    # Utilities and ages are mechanism state, not differentiated parameters.
+    trainable = tuple(
+        value - learning_rate * gradient if index < 8 else value
+        for index, (value, gradient) in enumerate(zip(state, gradients, strict=True))
+    )
+    updated = DiagnosticMLPState(*trainable)
+    utility1 = 0.99 * state.utility1 + 0.01 * hidden1 * jnp.mean(jnp.abs(state.w2), axis=1)
+    utility2 = 0.99 * state.utility2 + 0.01 * hidden2 * jnp.mean(jnp.abs(state.w3), axis=1)
+    utility3 = 0.99 * state.utility3 + 0.01 * hidden3 * jnp.mean(jnp.abs(state.w4), axis=1)
+    age1 = state.age1 + 1
+    age2 = state.age2 + 1
+    age3 = state.age3 + 1
+    eligible1 = age1 >= maturity_threshold
+    eligible2 = age2 >= maturity_threshold
+    eligible3 = age3 >= maturity_threshold
+    credit1 = state.replacement_credit1 + replacement_rate * jnp.sum(eligible1)
+    credit2 = state.replacement_credit2 + replacement_rate * jnp.sum(eligible2)
+    credit3 = state.replacement_credit3 + replacement_rate * jnp.sum(eligible3)
+    updated = updated._replace(
+        utility1=utility1,
+        utility2=utility2,
+        utility3=utility3,
+        age1=age1,
+        age2=age2,
+        age3=age3,
+        replacement_credit1=credit1,
+        replacement_credit2=credit2,
+        replacement_credit3=credit3,
+    )
+    key1, key2, key3 = jr.split(key, 3)
+    replace1 = (credit1 >= 1.0) & jnp.any(eligible1) & (replacement_rate > 0.0)
+    updated, count1 = jax.lax.cond(
+        replace1,
+        lambda current: _replace_diagnostic_first_layer(
+            current, current.utility1, eligible1, key1
+        ),
+        lambda current: (current, jnp.asarray(0, dtype=jnp.int32)),
+        updated,
+    )
+    updated = updated._replace(
+        replacement_credit1=jnp.where(replace1, credit1 - 1.0, credit1)
+    )
+    replace2 = (credit2 >= 1.0) & jnp.any(eligible2) & (replacement_rate > 0.0)
+    updated, count2 = jax.lax.cond(
+        replace2,
+        lambda current: _replace_diagnostic_second_layer(
+            current, current.utility2, eligible2, key2
+        ),
+        lambda current: (current, jnp.asarray(0, dtype=jnp.int32)),
+        updated,
+    )
+    updated = updated._replace(
+        replacement_credit2=jnp.where(replace2, credit2 - 1.0, credit2)
+    )
+    replace3 = (credit3 >= 1.0) & jnp.any(eligible3) & (replacement_rate > 0.0)
+    updated, count3 = jax.lax.cond(
+        replace3,
+        lambda current: _replace_diagnostic_third_layer(
+            current, current.utility3, eligible3, key3
+        ),
+        lambda current: (current, jnp.asarray(0, dtype=jnp.int32)),
+        updated,
+    )
+    updated = updated._replace(
+        replacement_credit3=jnp.where(replace3, credit3 - 1.0, credit3)
+    )
+    prediction = jnp.argmax(logits)
+    return updated, loss, prediction, (count1, count2, count3)
+
+
+# Kept as the explicitly two-hidden-layer state used by the v1 NaP comparator.
+# The canonical loss-of-plasticity diagnostic uses DiagnosticMLPState above.
 class MLPState(NamedTuple):
     w1: Array
     b1: Array
@@ -179,7 +372,6 @@ def _step(
     (loss, (logits, hidden1, hidden2)), gradients = jax.value_and_grad(
         _loss, has_aux=True, allow_int=True
     )(state, inputs, label)
-    # Utilities and ages are mechanism state, not differentiated parameters.
     trainable = tuple(
         value - learning_rate * gradient if index < 6 else value
         for index, (value, gradient) in enumerate(zip(state, gradients, strict=True))
@@ -235,6 +427,7 @@ class ResourceReceipt:
     model_queries: int
     parameter_updates: int
     replacements: int
+    replacements_by_layer: tuple[int, int, int]
     logical_forward_macs: int
     logical_gradient_macs: int
     persistent_bytes: int
@@ -243,8 +436,17 @@ class ResourceReceipt:
 
     def __post_init__(self) -> None:
         for field in dataclasses.fields(self):
-            if field.name != "timing_telemetry_only":
+            if field.name == "replacements_by_layer":
+                if type(self.replacements_by_layer) is not tuple or len(
+                    self.replacements_by_layer
+                ) != 3:
+                    raise ValueError("replacement counts must bind all three hidden layers")
+                for index, count in enumerate(self.replacements_by_layer):
+                    _exact_int(count, f"replacements_by_layer[{index}]", 0, 2**63 - 1)
+            elif field.name != "timing_telemetry_only":
                 _exact_int(getattr(self, field.name), field.name, 0, 2**63 - 1)
+        if sum(self.replacements_by_layer) != self.replacements:
+            raise ValueError("per-layer replacement counts must equal total replacements")
         if self.data_steps == 0 or self.model_queries == 0 or self.persistent_bytes == 0:
             raise ValueError("resource receipt must describe a non-empty run")
         if self.timing_telemetry_only is not True:
@@ -406,7 +608,7 @@ def _schedule(
     return tuple(tasks)
 
 
-def _state_sha256(state: MLPState) -> str:
+def _state_sha256(state: object) -> str:
     digest = hashlib.sha256()
     for leaf in jax.tree.leaves(state):
         value = np.asarray(leaf)
@@ -435,20 +637,20 @@ def _run_arm(
 ) -> ArmResult:
     key = jr.key(seed)
     key, init_key = jr.split(key)
-    state = _init_state(init_key, profile.hidden_width)
+    state = _init_diagnostic_state(init_key, profile.hidden_width)
     rate = 0.0 if arm_id in ("sgd_control", "cbp_mechanism_off") else profile.replacement_rate
     accuracies: list[float] = []
     losses: list[float] = []
     dead: list[float] = []
     ranks: list[float] = []
-    replacements = 0
+    replacements_by_layer = [0, 0, 0]
     start = time.perf_counter_ns()
     for inputs, labels in tasks:
         correct = 0
         task_losses: list[float] = []
         for inputs_row, label in zip(inputs, labels, strict=True):
             key, step_key = jr.split(key)
-            state, loss, prediction, replaced = _step(
+            state, loss, prediction, replaced_by_layer = _diagnostic_step(
                 state,
                 jnp.asarray(inputs_row),
                 jnp.asarray(label),
@@ -459,16 +661,21 @@ def _run_arm(
             )
             correct += int(prediction == label)
             task_losses.append(float(loss))
-            replacements += int(replaced)
-        _, hidden1, hidden2 = _forward(state, jnp.asarray(inputs))
-        host1, host2 = np.asarray(hidden1), np.asarray(hidden2)
+            for index, replaced in enumerate(replaced_by_layer):
+                replacements_by_layer[index] += int(replaced)
+        _, hidden1, hidden2, hidden3 = _forward_diagnostic(state, jnp.asarray(inputs))
+        host1, host2, host3 = (
+            np.asarray(hidden1),
+            np.asarray(hidden2),
+            np.asarray(hidden3),
+        )
         dead_count = np.sum(np.all(host1 == 0.0, axis=0)) + np.sum(
             np.all(host2 == 0.0, axis=0)
-        )
+        ) + np.sum(np.all(host3 == 0.0, axis=0))
         accuracies.append(float(correct / len(labels)))
         losses.append(float(np.mean(task_losses)))
-        dead.append(float(dead_count / (2 * profile.hidden_width)))
-        ranks.append(_effective_rank(host2))
+        dead.append(float(dead_count / (3 * profile.hidden_width)))
+        ranks.append(_effective_rank(host3))
     elapsed = time.perf_counter_ns() - start
     steps = profile.n_tasks * profile.examples_per_task
     training_queries = steps * 2
@@ -476,6 +683,7 @@ def _run_arm(
     model_queries = training_queries + diagnostic_queries
     forward_macs = (
         INPUT_DIM * profile.hidden_width
+        + profile.hidden_width * profile.hidden_width
         + profile.hidden_width * profile.hidden_width
         + profile.hidden_width * N_CLASSES
     )
@@ -494,7 +702,12 @@ def _run_arm(
             diagnostic_model_queries=diagnostic_queries,
             model_queries=model_queries,
             parameter_updates=steps,
-            replacements=replacements,
+            replacements=sum(replacements_by_layer),
+            replacements_by_layer=(
+                replacements_by_layer[0],
+                replacements_by_layer[1],
+                replacements_by_layer[2],
+            ),
             logical_forward_macs=model_queries * forward_macs,
             logical_gradient_macs=training_queries * forward_macs,
             persistent_bytes=state_bytes,
@@ -548,13 +761,17 @@ def validate_result(value: object) -> DiagnosticResult:
         ResourceReceipt.__post_init__(arm.receipt)
         receipt = arm.receipt
         expected_persistent = sum(
-            array.nbytes for array in jax.tree.leaves(_init_state(jr.key(0), profile.hidden_width))
+            array.nbytes
+            for array in jax.tree.leaves(
+                _init_diagnostic_state(jr.key(0), profile.hidden_width)
+            )
         )
         training_queries = expected_steps * 2
         diagnostic_queries = expected_steps
         model_queries = training_queries + diagnostic_queries
         forward_macs = (
             INPUT_DIM * profile.hidden_width
+            + profile.hidden_width * profile.hidden_width
             + profile.hidden_width * profile.hidden_width
             + profile.hidden_width * N_CLASSES
         )
@@ -569,7 +786,8 @@ def validate_result(value: object) -> DiagnosticResult:
             or receipt.logical_forward_macs != model_queries * forward_macs
             or receipt.logical_gradient_macs != training_queries * forward_macs
             or receipt.persistent_bytes != expected_persistent
-            or not 0 <= receipt.replacements <= expected_steps * 2
+            or not 0 <= receipt.replacements <= expected_steps * 3
+            or any(count > expected_steps for count in receipt.replacements_by_layer)
         ):
             raise ValueError("diagnostic curve or exact resource receipt mismatch")
     if (
@@ -580,10 +798,14 @@ def validate_result(value: object) -> DiagnosticResult:
         or first.final_state_sha256 != mechanism_off.final_state_sha256
         or first.receipt.replacements != 0
         or mechanism_off.receipt.replacements != 0
+        or first.receipt.replacements_by_layer != (0, 0, 0)
+        or mechanism_off.receipt.replacements_by_layer != (0, 0, 0)
     ):
         raise ValueError("CBP mechanism-off does not reduce exactly to SGD")
-    if candidate.receipt.replacements == 0 and profile.profile_id == "contract-smoke":
-        raise ValueError("contract smoke must exercise the CBP replacement path")
+    if profile.profile_id == "contract-smoke" and any(
+        count == 0 for count in candidate.receipt.replacements_by_layer
+    ):
+        raise ValueError("contract smoke must exercise every CBP replacement path")
     return value
 
 
