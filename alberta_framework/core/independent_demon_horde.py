@@ -398,6 +398,9 @@ class IndependentDemonHorde:
         if type(trace_mode) is not TraceMode:
             raise ValueError("trace_mode must be a TraceMode")
         self._horde_spec = horde_spec
+        self._terminal_rewards = jnp.array(
+            [demon.terminal_reward for demon in horde_spec.demons], dtype=jnp.float32
+        )
         self._hidden_sizes = hidden_sizes
         self._optimizer: AnyOptimizer = (
             optimizer if optimizer is not None else LMS(step_size=step_size)
@@ -977,9 +980,10 @@ class IndependentDemonHorde:
             [self._predict_single(state.demon_states[i], next_observation) for i in range(n_demons)]
         )
 
-        # 2. TD targets: r + gamma * V(s'). gamma=0 must not multiply inf V(s').
+        # 2. TD targets: r + gamma * V(s') + (1 - gamma) * z. gamma=0 must not
+        # multiply inf V(s'); z is the demon's terminal pseudo-reward.
         bootstrap = jnp.where(gammas == 0.0, 0.0, gammas * next_preds)
-        targets = cumulants + bootstrap
+        targets = cumulants + bootstrap + (1.0 - gammas) * self._terminal_rewards
 
         # 3. NaN means inactive; other non-finite values are rejected heads.
         requested_mask = ~jnp.isnan(cumulants)

@@ -817,7 +817,8 @@ class GVFSpec:
         gamma: Pseudo-termination discount (0.0 = single-step prediction)
         lamda: Trace decay parameter (0.0 = no eligibility traces)
         cumulant_index: Index into targets array, or -1 for external cumulant
-        terminal_reward: Terminal pseudo-reward z (default 0.0)
+        terminal_reward: Terminal pseudo-reward z (default 0.0). Enters every
+            TD target as ``(1 - gamma) * z``, the GVF termination outcome.
     """
 
     name: str

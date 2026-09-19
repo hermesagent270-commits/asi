@@ -237,7 +237,7 @@ class OffPolicyHordeUpdateResult:
         state: Updated shared-trunk multi-head learner state.
         predictions: Predictions at ``s_t``, shape ``(n_demons,)``.
         next_predictions: Bootstrap predictions at ``s_{t+1}``.
-        td_targets: TD targets ``c_t + gamma_t V(s_{t+1})``.
+        td_targets: TD targets ``c_t + gamma_t V(s_{t+1}) + (1 - gamma_t) z``.
         td_errors: Unweighted TD errors.
         rhos: Raw importance-sampling ratios.
         clipped_rhos: Ratios after update clipping.
@@ -400,6 +400,9 @@ class OffPolicyHordeLearner:
         )
 
         self._horde_spec = horde_spec
+        self._terminal_rewards = jnp.array(
+            [demon.terminal_reward for demon in horde_spec.demons], dtype=jnp.float32
+        )
         self._hidden_sizes = hidden_sizes
         self._optimizer: AnyOptimizer = (
             optimizer if optimizer is not None else LMS(step_size=step_size)
@@ -565,7 +568,11 @@ class OffPolicyHordeLearner:
             jnp.zeros_like(next_predictions),
             next_predictions,
         )
-        td_targets = cumulants + discounts * bootstrap_predictions
+        td_targets = (
+            cumulants
+            + discounts * bootstrap_predictions
+            + (1.0 - discounts) * self._terminal_rewards
+        )
         requested_mask = ~jnp.isnan(cumulants)
         checked_state = state
         if self._utility_decay == 0.0:
@@ -1082,6 +1089,9 @@ class NonlinearSharedGTDHordeLearner:
                 raise ValueError(f"{name} must contain values in [0, 1]")
         hidden_size = _require_int32("hidden_size", hidden_size, minimum=1)
         self._horde_spec = horde_spec
+        self._terminal_rewards = jnp.array(
+            [demon.terminal_reward for demon in horde_spec.demons], dtype=jnp.float32
+        )
         self._hidden_size = hidden_size
         self._primary_step_size = _require_float32(
             "primary_step_size", primary_step_size, positive=True
@@ -1324,7 +1334,11 @@ class NonlinearSharedGTDHordeLearner:
             jnp.zeros_like(next_predictions),
             next_predictions,
         )
-        td_targets = cumulants + discounts * bootstrap_predictions
+        td_targets = (
+            cumulants
+            + discounts * bootstrap_predictions
+            + (1.0 - discounts) * self._terminal_rewards
+        )
         td_errors = td_targets - predictions
         requested = ~jnp.isnan(cumulants)
         active_mask = (
