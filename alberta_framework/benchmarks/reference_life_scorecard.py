@@ -197,6 +197,15 @@ def canonical_json_bytes(value: Any) -> bytes:
         raise ValueError("value does not have a canonical JSON encoding") from exc
 
 
+def _admit_validator_payload(value: object, *, path: str) -> dict[str, Any]:
+    """Admit an exact, deeply canonical JSON object before validator access."""
+
+    if type(value) is not dict:
+        raise ValueError(f"{path}: validator payload must be an exact JSON object")
+    _validate_json_value(value, path=path)
+    return cast(dict[str, Any], value)
+
+
 def _sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
@@ -2792,6 +2801,8 @@ def _validate_run_record(
 def validate_scorecard_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Strictly validate and recompute one scorecard aggregate."""
 
+    payload = _admit_validator_payload(payload, path="$")
+
     required = {
         "schema",
         "schema_version",
@@ -3402,6 +3413,7 @@ def validate_scorecard_run_record(
 ) -> dict[str, Any]:
     """Validate one shard against its canonical schedule identity."""
 
+    payload = _admit_validator_payload(payload, path="$")
     effective_plan = build_development_plan() if plan is None else plan
     environment = payload.get("environment_kind")
     arm = payload.get("arm")
