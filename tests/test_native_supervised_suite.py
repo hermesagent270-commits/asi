@@ -11,6 +11,7 @@ from alberta_framework.benchmarks.native_supervised_suite import (
     ARM_IDS,
     BENCHMARK_IDS,
     FROZEN_SEEDS,
+    SCHEMA,
     build_task_stream,
     catalog_payload,
     main,
@@ -19,6 +20,14 @@ from alberta_framework.benchmarks.native_supervised_suite import (
 )
 
 pytestmark = pytest.mark.integration
+
+
+class _StringSubclass(str):
+    pass
+
+
+class _TupleSubclass(tuple[object, ...]):
+    pass
 
 
 def _fixture(n_classes: int, shape: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
@@ -144,6 +153,43 @@ def test_validator_rejects_promotion_and_counter_forgery() -> None:
         validate_result(forged)
     with pytest.raises(ValueError, match="exact SuiteResult"):
         validate_result(dataclasses.asdict(result))
+
+
+@pytest.mark.parametrize(
+    ("changes", "match"),
+    (
+        ({"schema": _StringSubclass(SCHEMA)}, "schema"),
+        ({"seed": float(FROZEN_SEEDS[0])}, "seed"),
+        ({"n_classes": 10.0}, "n_classes"),
+        ({"scientific_promotion_allowed": 0}, "nonpromoting"),
+        ({"task_information_used_by_learner": None}, "task-agnostic"),
+    ),
+)
+def test_validator_rejects_noncanonical_result_identities_and_policy(
+    changes: dict[str, object], match: str
+) -> None:
+    images, labels = _fixture(10, (4, 4))
+    result = run_native_suite(
+        "split_mnist", images, labels, seed=FROZEN_SEEDS[0], examples_per_task=1
+    )
+
+    with pytest.raises(ValueError, match=match):
+        validate_result(dataclasses.replace(result, **changes))  # type: ignore[arg-type]
+
+
+def test_validator_requires_exact_runtime_identity_container_and_members() -> None:
+    images, labels = _fixture(10, (4, 4))
+    result = run_native_suite(
+        "split_mnist", images, labels, seed=FROZEN_SEEDS[0], examples_per_task=1
+    )
+    tuple_subclass = _TupleSubclass(result.runtime_identity)
+    string_subclass = (_StringSubclass(result.runtime_identity[0]), *result.runtime_identity[1:])
+
+    for runtime_identity in (tuple_subclass, string_subclass):
+        with pytest.raises(ValueError, match="runtime identity"):
+            validate_result(
+                dataclasses.replace(result, runtime_identity=runtime_identity)  # type: ignore[arg-type]
+            )
 
 
 def test_validator_rejects_forged_headline_accuracy() -> None:
