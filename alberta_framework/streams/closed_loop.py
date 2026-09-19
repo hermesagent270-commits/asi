@@ -555,7 +555,10 @@ class SwitchingTwoStateMDP:
         payoff = self._phase_payoff_np(phase)
         stay_0 = float(payoff[0, 0])
         stay_1 = float(payoff[1, 1])
-        toggle = 0.5 * float(payoff[0, 1] + payoff[1, 0])
+        # Sum in float64: the sum of two float32 values is exact there, and
+        # halving is exact, so this is the documented closed form rather than
+        # its float32-rounded neighbour.
+        toggle = 0.5 * (float(payoff[0, 1]) + float(payoff[1, 0]))
         return max(stay_0, stay_1, toggle)
 
     def uniform_random_average_reward(self, phase: int) -> float:
@@ -566,7 +569,8 @@ class SwitchingTwoStateMDP:
         reward is the plain mean of the payoff matrix.
         """
 
-        return float(self._phase_payoff_np(phase).mean())
+        # Four float32 addends sum exactly in float64 and quartering is exact.
+        return float(np.mean(self._phase_payoff_np(phase), dtype=np.float64))
 
     def _phase_payoff_np(self, phase: int) -> np.ndarray:
         # Exact-type gate first: an arbitrary object's ``__eq__`` could run

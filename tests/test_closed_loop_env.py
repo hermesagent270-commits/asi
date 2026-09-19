@@ -244,6 +244,42 @@ class TestSwitchingAnalyticHelpers:
         )
         assert stay_best.optimal_average_reward(PHASE_A) == pytest.approx(0.7)
 
+    def test_oracles_are_exact_not_float32_rounded(self):
+        """The documented closed forms must be evaluated exactly.
+
+        Payoffs are float32 lattice points and ``step`` pays them exactly, so
+        the average an optimal controller achieves is the exact half-sum of
+        the toggle cycle. Summing two float32 values in float32 rounds that
+        half-sum, and the rounding can land above or below the true optimum,
+        which turns the privileged oracle regret of an optimal controller into
+        a nonzero (possibly negative) number.
+        """
+        unit = 2.0**-24
+        # float32(1.0 + 3u) rounds up to 1 + 2**-22: oracle above the optimum.
+        above = SwitchingTwoStateMDP(
+            SwitchingTwoStateConfig(payoffs_a=((0.5 + unit, 1.0), (3 * unit, 0.0)))
+        )
+        exact_above = float((Fraction(1) + 3 * Fraction(unit)) / 2)
+        assert above.optimal_average_reward(PHASE_A) == exact_above
+        # float32(1.0 + u) rounds down to 1.0: oracle below the optimum.
+        below = SwitchingTwoStateMDP(
+            SwitchingTwoStateConfig(payoffs_a=((0.5, 1.0), (unit, 0.0)))
+        )
+        exact_below = float((Fraction(1) + Fraction(unit)) / 2)
+        assert below.optimal_average_reward(PHASE_A) == exact_below
+        assert below.uniform_random_average_reward(PHASE_A) == float(
+            (Fraction(0.5) + Fraction(1) + Fraction(unit)) / 4
+        )
+
+        # What the environment actually pays an optimal (toggle) controller.
+        state = below.init(jr.key(0))
+        total = Fraction(0)
+        for _ in range(40):
+            action = 1 - int(state.state_index)
+            _, reward, state = below.step(state, action, jr.key(1))
+            total += Fraction(float(reward))
+        assert float(total / 40) == exact_below
+
     def test_optimal_matches_brute_force_rollouts(self):
         """The closed form equals the best empirical deterministic policy."""
         env = SwitchingTwoStateMDP(
