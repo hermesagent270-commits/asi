@@ -690,9 +690,11 @@ class ETDLinearLearner:
     ``e_t = rho_t * (gamma_t * lambda * e_{t-1} + M_t * phi_t)``
     ``w_{t+1} = w_t + alpha * delta_t * e_t``
 
-    The single-step API advances the follow-on trace with the current
-    transition's ratio and discount. With ``rho=1``, ``gamma=0``, and
-    ``lambda=0``, this reduces to the standard LMS/TD(0) terminating update.
+    The single-step API advances the follow-on trace with the ratio carried
+    from the prior call (``state.previous_rho``, initialised to ``1``) and the
+    current transition's discount; only the eligibility trace uses the
+    current ``rho``. With ``rho=1``, ``gamma=0``, and ``lambda=0``, this
+    reduces to the standard LMS/TD(0) terminating update.
 
     Attributes:
         step_size: Learning rate alpha
