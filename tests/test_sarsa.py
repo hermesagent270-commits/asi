@@ -1296,6 +1296,97 @@ class TestSARSALambdaTraces:
             assert jnp.allclose(w_trace, 0.0), f"head {i} w-trace not reset"
             assert jnp.allclose(b_trace, 0.0), f"head {i} b-trace not reset"
 
+    def test_truncated_episode_does_not_leak_traces_into_the_next(self):
+        """``run_sarsa_episode`` ends on truncation, so traces must not survive it.
+
+        A truncated transition keeps its bootstrap (the state is not terminal)
+        but the next call resets the environment, so credit accumulated in the
+        eligibility traces must not be applied to the first update of an
+        unrelated episode.
+        """
+        from alberta_framework import run_sarsa_episode
+
+        class _TruncatingCorridor:
+            """One-hot three-state corridor that truncates after three steps."""
+
+            def __init__(self) -> None:
+                self._t = 0
+
+            def reset(self):
+                self._t = 0
+                return np.eye(3, dtype=np.float32)[0], {}
+
+            def step(self, action: int):
+                self._t += 1
+                obs = np.eye(3, dtype=np.float32)[min(self._t, 2)]
+                return obs, 1.0, False, self._t >= 3, {}
+
+        agent = _make_agent(
+            n_actions=1,
+            hidden_sizes=(),
+            gamma=0.9,
+            epsilon_start=0.0,
+            lamda=0.8,
+        )
+        state = agent.init(feature_dim=3, key=jr.key(3))
+        result = run_sarsa_episode(agent, state, _TruncatingCorridor(), max_steps=10)
+        assert result.num_steps == 3
+
+        w_trace, b_trace = result.state.learner_state.head_traces[0]
+        assert jnp.allclose(w_trace, 0.0), "control-head w-trace leaked across truncation"
+        assert jnp.allclose(b_trace, 0.0), "control-head b-trace leaked across truncation"
+
+        # The first update of the next episode credits only the feature it visited.
+        env = _TruncatingCorridor()
+        obs0, _ = env.reset()
+        state = result.state.replace(  # type: ignore[attr-defined]
+            last_action=jnp.array(0, dtype=jnp.int32),
+            last_observation=jnp.asarray(obs0),
+        )
+        obs1, reward, _, _, _ = env.step(0)
+        before = state.learner_state.head_params.weights[0]
+        after = agent.update(
+            state,
+            jnp.array(reward, dtype=jnp.float32),
+            jnp.asarray(obs1),
+            jnp.array(0.0),
+            jnp.array(0, dtype=jnp.int32),
+        ).state.learner_state.head_params.weights[0]
+        delta = np.asarray(after - before).reshape(-1)
+        assert delta[0] != 0.0
+        np.testing.assert_array_equal(delta[1:], 0.0)
+
+    def test_reset_control_traces_clears_only_control_heads(self):
+        """The public reset zeroes control-head traces and touches nothing else."""
+        agent = _make_agent(n_actions=2, hidden_sizes=(), gamma=0.9, epsilon_start=0.0, lamda=0.8)
+        state = agent.init(feature_dim=3, key=jr.key(4)).replace(  # type: ignore[attr-defined]
+            last_action=jnp.array(1, dtype=jnp.int32),
+            last_observation=jnp.array([1.0, 2.0, 3.0], dtype=jnp.float32),
+        )
+        state = agent.update(
+            state,
+            jnp.array(0.5),
+            jnp.array([0.5, -1.0, 2.0], dtype=jnp.float32),
+            jnp.array(0.0),
+            jnp.array(1, dtype=jnp.int32),
+        ).state
+        assert not jnp.allclose(state.learner_state.head_traces[1][0], 0.0)
+
+        reset = agent.reset_control_traces(state)
+        for i in range(2):
+            assert jnp.allclose(reset.learner_state.head_traces[i][0], 0.0)
+            assert jnp.allclose(reset.learner_state.head_traces[i][1], 0.0)
+        chex.assert_trees_all_equal(
+            reset.learner_state.head_params, state.learner_state.head_params
+        )
+        chex.assert_trees_all_equal(
+            reset.learner_state.trunk_traces, state.learner_state.trunk_traces
+        )
+        assert int(reset.step_count) == int(state.step_count)
+        assert int(reset.last_action) == int(state.last_action)
+        with pytest.raises(ValueError, match="SARSAState"):
+            agent.reset_control_traces(state.learner_state)  # type: ignore[arg-type]
+
     def test_external_target_semantics_intact(self):
         """With lamda>0, the TD target is still r + gamma*Q(s',a') (no
         double-counted internal bootstrap)."""

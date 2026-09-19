@@ -613,6 +613,31 @@ class SARSAAgent:
         """Number of discrete actions."""
         return self._sarsa_config.n_actions
 
+    def reset_control_traces(self, state: SARSAState) -> SARSAState:
+        """Clear the control-head eligibility traces at an episode boundary.
+
+        ``update`` clears these traces itself when ``terminated`` is set, and
+        skips the bootstrap at the same time. A truncated episode keeps its
+        bootstrap (the last state is not terminal) but still ends the
+        trajectory, so credit accumulated in the traces must not be applied
+        to the first update of the next, unrelated episode. Parameters,
+        optimizer states, prediction-demon traces, and counters are untouched.
+        """
+        if type(state) is not SARSAState:
+            raise ValueError("state must be a SARSAState")
+        n_actions = self._sarsa_config.n_actions
+        head_traces = list(state.learner_state.head_traces)
+        for i in range(n_actions):
+            w_trace, b_trace = head_traces[i]
+            head_traces[i] = (jnp.zeros_like(w_trace), jnp.zeros_like(b_trace))
+        learner_state = state.learner_state.replace(  # type: ignore[attr-defined]
+            head_traces=tuple(head_traces)
+        )
+        return cast(
+            SARSAState,
+            state.replace(learner_state=learner_state),  # type: ignore[attr-defined]
+        )
+
     def to_config(self) -> dict[str, Any]:
         """Serialize agent configuration to dict."""
         horde_config = self._horde.to_config()
@@ -1114,6 +1139,11 @@ def run_sarsa_episode(
         action = next_action
 
         if terminated or truncated:
+            if truncated and not terminated:
+                # The update above bootstrapped correctly (no terminal), but
+                # the episode still ends here: never let its eligibility
+                # traces credit the next episode's first transition.
+                state = agent.reset_control_traces(state)
             break
 
     return SARSAEpisodeResult(
