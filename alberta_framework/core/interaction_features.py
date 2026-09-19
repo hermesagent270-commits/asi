@@ -882,10 +882,22 @@ class FixedBudgetInteractionLearner:
                 "the robust loss proxy replaces the raw LMS counterfactual"
             )
 
-        mix = jnp.array(generator_mix, dtype=jnp.float32)
-        if mix.shape != (3,):
+        # ``generator_mix`` is a categorical over the three candidate
+        # generators: every entry must be a finite, non-negative real. A
+        # negative entry passes a positive-sum check but its log inside the
+        # categorical draw is NaN, which collapses the draw onto one generator.
+        if type(generator_mix) is not tuple or len(generator_mix) != 3:
             raise ValueError("generator_mix must have three entries")
-        mix_sum = float(jnp.sum(mix))
+        validated_generator_mix = tuple(
+            validated_float32_scalar(f"generator_mix[{index}]", value, lower=0.0)
+            for index, value in enumerate(generator_mix)
+        )
+        generator_mix = (
+            validated_generator_mix[0],
+            validated_generator_mix[1],
+            validated_generator_mix[2],
+        )
+        mix_sum = sum(generator_mix)
         if mix_sum <= 0.0:
             raise ValueError("generator_mix must contain positive mass")
 

@@ -238,3 +238,35 @@ def test_leftover_constructor_scalars_keep_legal_floats() -> None:
     assert payload["promotion_blend"] == 1.0
     assert type(payload["step_size_output"]) is float
     assert type(payload["obgd_kappa"]) is float
+
+
+@pytest.mark.parametrize(
+    "generator_mix",
+    [
+        (2.0, -1.0, 0.0),
+        (float("nan"), 1.0, 0.0),
+        (float("inf"), 1.0, 0.0),
+        (1.0, True, 0.0),
+        [1.0, 0.0, 0.0],
+        (1.0, 0.0),
+    ],
+)
+def test_generator_mix_rejects_negative_nonfinite_and_malformed_entries(
+    generator_mix: Any,
+) -> None:
+    """``generator_mix`` is a categorical over three generators.
+
+    A negative entry survives the positive-sum check, and ``log`` of it inside
+    the categorical draw is NaN, which collapses the draw onto one generator;
+    NaN or inf entries poison every stored probability. The sibling
+    ``FixedBudgetFeatureLearner`` already rejects all of these.
+    """
+    with pytest.raises(ValueError, match="generator_mix"):
+        _construct(generator_mix=generator_mix)
+
+
+def test_generator_mix_keeps_legal_mass_and_normalizes() -> None:
+    learner = _construct(generator_mix=(2.0, 1.0, 1.0))
+    assert learner.to_config()["generator_mix"] == [0.5, 0.25, 0.25]
+    learner = _construct(generator_mix=(0.0, 0.0, 3.0))
+    assert learner.to_config()["generator_mix"] == [0.0, 0.0, 1.0]
