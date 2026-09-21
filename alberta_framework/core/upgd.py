@@ -2803,9 +2803,14 @@ class UPGDLearner:
                 -jnp.inf,
             )
             wrong_idx = jnp.argmax(wrong_logits).astype(jnp.int32)
+            # With no active competitor every wrong logit is -inf and argmax
+            # falls back to head 0, which may be inactive (NaN target) or the
+            # true head itself; the margin step must then be skipped so masked
+            # heads stay untouched and a lone active head is not self-pushed.
+            has_wrong = jnp.any(jnp.logical_and(active_mask, head_indices != true_idx))
             margin = logits[true_idx] - logits[wrong_idx]
             do_margin = jnp.logical_and(
-                target_mass > 0.0,
+                jnp.logical_and(target_mass > 0.0, has_wrong),
                 margin < jnp.asarray(self._readout_margin, dtype=jnp.float32),
             )
             margin_scale = jnp.asarray(self._readout_margin_step_size, dtype=jnp.float32) / (

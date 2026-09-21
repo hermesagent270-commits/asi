@@ -1880,6 +1880,48 @@ class TestUtilityTracking:
         assert head_deltas[0] > 0.0
         assert sum(delta > 0.0 for delta in head_deltas[1:]) == 1
 
+    def test_margin_adapter_leaves_masked_heads_and_lone_active_head_untouched(self):
+        """NaN targets mask heads; the margin step needs an active competitor.
+
+        With every wrong logit masked to -inf the argmax fell back to head 0,
+        so an inactive head 0 was pushed down, and a lone active head 0 was
+        pushed up against itself on every step.
+        """
+        learner = UPGDLearner(
+            n_heads=3,
+            hidden_sizes=(4,),
+            sparsity=0.0,
+            step_size=0.0,
+            perturbation_sigma=0.0,
+            readout_margin=1.0,
+            readout_margin_step_size=0.1,
+        )
+        state = learner.init(feature_dim=3, key=jr.key(15))
+        features = jnp.array([1.0, -0.5, 0.25])
+        nan = float("nan")
+        for targets in (
+            jnp.array([1.0, nan, nan]),
+            jnp.array([nan, nan, 1.0]),
+            jnp.array([nan, 1.0, nan]),
+        ):
+            result = learner.update(state, features, targets)
+            chex.assert_trees_all_equal(result.state.head_params, state.head_params)
+
+        # Two active heads still receive the hinge push, and the masked head does not.
+        result = learner.update(state, features, jnp.array([1.0, 0.0, nan]))
+        assert bool(
+            jnp.any(result.state.head_params.biases[0] != state.head_params.biases[0])
+        )
+        assert bool(
+            jnp.any(result.state.head_params.biases[1] != state.head_params.biases[1])
+        )
+        chex.assert_trees_all_equal(
+            result.state.head_params.weights[2], state.head_params.weights[2]
+        )
+        chex.assert_trees_all_equal(
+            result.state.head_params.biases[2], state.head_params.biases[2]
+        )
+
     def test_gradient_alignment_meta_plasticity_changes_head_scales(self):
         learner = UPGDLearner(
             n_heads=1,
