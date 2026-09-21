@@ -3,6 +3,7 @@
 import math
 
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
@@ -1065,3 +1066,51 @@ class TestTerminalPseudoReward:
             shared_state, obs, cumulant, next_obs, rho, jnp.array([0.0])
         )
         chex.assert_trees_all_close(shared_terminal.td_targets, cumulant + 2.0, atol=1e-6)
+
+
+def test_bounder_metric_never_scales_trunk_or_head_traces() -> None:
+    """A bounder that clips nothing must not change the TD(lambda) trajectory.
+
+    ``AGCBounding`` reports the clipped-unit fraction (0.0 when nothing is
+    clipped) as its metric; that metric was multiplied into the trunk and head
+    traces, zeroing every eligibility trace after each update.
+    """
+    from alberta_framework.core.optimizers import LMS, AGCBounding
+
+    spec = create_horde_spec(
+        (
+            GVFSpec(
+                name="d", demon_type=DemonType.PREDICTION, gamma=0.9, lamda=0.5, cumulant_index=0
+            ),
+        )
+    )
+    observations = jnp.asarray(
+        np.random.default_rng(3).normal(size=(5, 3)).astype(np.float32)
+    )
+
+    def run(bounder: AGCBounding | None) -> MultiHeadMLPState:
+        learner = HordeLearner(
+            spec,
+            hidden_sizes=(4,),
+            optimizer=LMS(step_size=0.01),
+            bounder=bounder,
+            sparsity=0.0,
+        )
+        state = learner.init(3, jr.key(0))
+        for t in range(4):
+            state = learner.update(
+                state,
+                observations[t],
+                jnp.array([1.0], dtype=jnp.float32),
+                observations[t + 1],
+            ).state
+        return state
+
+    unbounded = run(None)
+    clip_nothing = run(AGCBounding(clip_factor=1e6))
+    chex.assert_trees_all_close(unbounded, clip_nothing, rtol=1e-6, atol=1e-7)
+    trace_mass = sum(
+        float(jnp.abs(leaf).sum())
+        for leaf in jax.tree_util.tree_leaves((clip_nothing.trunk_traces, clip_nothing.head_traces))
+    )
+    assert trace_mass > 0.0

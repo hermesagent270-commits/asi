@@ -801,12 +801,14 @@ class IndependentDemonHorde:
 
         # 5. Optional bounding (per-demon)
         if self._bounder is not None:
-            bounded_steps, bound_scale = self._bounder.bound(
+            # ``Bounder.bound`` returns ``(steps, metric)``; the metric is a
+            # reporting scalar (ObGD's step scale, AGC's clipped-unit fraction)
+            # and must never touch the eligibility traces, which decay by
+            # gamma * lambda alone.
+            bounded_steps, _bound_metric = self._bounder.bound(
                 tuple(all_steps), step_error, tuple(all_params)
             )
             all_steps = list(bounded_steps)
-            # Scale traces so future updates reflect the effective step
-            new_traces = [bound_scale * t for t in new_traces]
 
         # 6. Apply: param += error * step
         new_weights: list[Array] = []

@@ -747,13 +747,14 @@ class OffPolicyHordeLearner:
             for i in range(n_trunk_layers):
                 trunk_params_flat.append(state.trunk_params.weights[i])
                 trunk_params_flat.append(state.trunk_params.biases[i])
+            # The bounder's metric is a reporting scalar (ObGD's step scale,
+            # AGC's clipped-unit fraction); it must never scale the traces.
             bounded_trunk_steps, trunk_bounding_metric = self._bounder.bound(
                 tuple(trunk_steps),
                 jnp.array(1.0, dtype=jnp.float32),
                 tuple(trunk_params_flat),
             )
             trunk_steps = list(bounded_trunk_steps)
-            new_trunk_traces = [trunk_bounding_metric * t for t in new_trunk_traces]
 
         new_trunk_weights: list[Array] = []
         new_trunk_biases: list[Array] = []
@@ -827,14 +828,12 @@ class OffPolicyHordeLearner:
             step_error = _gradient_step_error(head_optimizer, error_i)
 
             if self._bounder is not None:
-                bounded_head_steps, bound_scale = self._bounder.bound(
+                bounded_head_steps, _bound_metric = self._bounder.bound(
                     (w_step, b_step),
                     step_error,
                     (head_w, head_b),
                 )
                 w_step, b_step = bounded_head_steps
-                new_w_trace = bound_scale * new_w_trace
-                new_b_trace = bound_scale * new_b_trace
 
             new_w = head_w + step_error * w_step
             new_b = head_b + step_error * b_step

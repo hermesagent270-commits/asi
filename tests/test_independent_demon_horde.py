@@ -765,3 +765,75 @@ def test_independent_horde_loop_preflights_shapes_and_output_budget() -> None:
     _require_loop_output_resources(119_304_647, 1)
     with pytest.raises(ValueError, match="learning-loop outputs"):
         _require_loop_output_resources(119_304_648, 1)
+
+
+def test_bounder_metric_never_scales_eligibility_traces() -> None:
+    """``Bounder.bound`` returns ``(steps, metric)``; the metric is reporting only.
+
+    ``AGCBounding`` reports the fraction of clipped units, which is 0.0 when
+    nothing is clipped. Multiplying the stored traces by it turned TD(lambda)
+    into TD(0). A bounder that clips nothing must leave the trajectory exactly
+    equal to the unbounded one, and the linear demon must follow the textbook
+    semi-gradient TD(lambda) reference.
+    """
+    from alberta_framework.core.optimizers import LMS, AGCBounding
+
+    alpha, gamma, lamda, dim = 0.1, 0.9, 0.5, 3
+    spec = create_horde_spec(
+        (
+            GVFSpec(
+                name="d",
+                demon_type=DemonType.PREDICTION,
+                gamma=gamma,
+                lamda=lamda,
+                cumulant_index=0,
+            ),
+        )
+    )
+    rng = np.random.default_rng(0)
+    inputs = rng.normal(size=(7, dim)).astype(np.float32)
+    cumulants = rng.normal(size=6).astype(np.float32)
+
+    def run(bounder: AGCBounding | None) -> IndependentDemonHordeState:
+        horde = IndependentDemonHorde(
+            spec,
+            hidden_sizes=(),
+            optimizer=LMS(step_size=alpha),
+            bounder=bounder,
+            sparsity=0.0,
+            use_layer_norm=False,
+        )
+        state = horde.init(dim, jr.key(1))
+        for t in range(6):
+            state = horde.update(
+                state,
+                jnp.asarray(inputs[t]),
+                jnp.asarray([cumulants[t]], dtype=jnp.float32),
+                jnp.asarray(inputs[t + 1]),
+            ).state
+        return state
+
+    unbounded = run(None)
+    clip_nothing = run(AGCBounding(clip_factor=1e6))
+    chex.assert_trees_all_equal(unbounded, clip_nothing)
+
+    initial = IndependentDemonHorde(
+        spec, hidden_sizes=(), optimizer=LMS(step_size=alpha), sparsity=0.0, use_layer_norm=False
+    ).init(dim, jr.key(1))
+    w = np.asarray(initial.demon_states[0].params.weights[0], dtype=np.float64).reshape(-1)
+    b = float(initial.demon_states[0].params.biases[0][0])
+    z_w = np.zeros(dim)
+    z_b = 0.0
+    for t in range(6):
+        x = inputs[t].astype(np.float64)
+        x_next = inputs[t + 1].astype(np.float64)
+        delta = cumulants[t] + gamma * (w @ x_next + b) - (w @ x + b)
+        z_w = gamma * lamda * z_w + x
+        z_b = gamma * lamda * z_b + 1.0
+        w = w + alpha * delta * z_w
+        b = b + alpha * delta * z_b
+    coded = np.asarray(clip_nothing.demon_states[0].params.weights[0]).reshape(-1)
+    np.testing.assert_allclose(coded, w, rtol=0.0, atol=1e-5)
+    np.testing.assert_allclose(
+        float(clip_nothing.demon_states[0].params.biases[0][0]), b, rtol=0.0, atol=1e-5
+    )

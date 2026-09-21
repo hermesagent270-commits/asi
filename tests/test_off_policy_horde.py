@@ -853,3 +853,45 @@ def test_off_policy_horde_ratio_clip_scalars_reject_booleans_and_nans() -> None:
     assert learner._ratio_clip == 2.0
     assert learner._trace_ratio_clip == 1.0
     assert learner._min_behavior_probability == 1e-6
+
+
+def test_bounder_metric_never_scales_trunk_or_head_traces() -> None:
+    """A bounder that clips nothing must not change the off-policy trajectory.
+
+    ``AGCBounding`` reports the clipped-unit fraction (0.0 when nothing is
+    clipped); that metric was multiplied into the trunk and head traces.
+    """
+    from alberta_framework.core.optimizers import LMS, AGCBounding
+
+    spec = _spec(gammas=(0.9, 0.8), lamdas=(0.5, 0.5))
+    observations = jnp.asarray(
+        np.random.default_rng(5).normal(size=(5, 4)).astype(np.float32)
+    )
+
+    def run(bounder: AGCBounding | None) -> object:
+        learner = OffPolicyHordeLearner(
+            spec,
+            hidden_sizes=(6,),
+            optimizer=LMS(step_size=0.01),
+            bounder=bounder,
+            ratio_clip=1.5,
+        )
+        state = learner.init(4, jax.random.key(1))
+        for t in range(4):
+            state = learner.update_with_ratios(
+                state,
+                observations[t],
+                jnp.array([1.0, -0.5], dtype=jnp.float32),
+                observations[t + 1],
+                jnp.array([1.0, 1.0], dtype=jnp.float32),
+            ).state
+        return state
+
+    unbounded = run(None)
+    clip_nothing = run(AGCBounding(clip_factor=1e6))
+    chex.assert_trees_all_close(unbounded, clip_nothing, rtol=1e-6, atol=1e-7)
+    trace_mass = sum(
+        float(jnp.abs(leaf).sum())
+        for leaf in jax.tree_util.tree_leaves((clip_nothing.trunk_traces, clip_nothing.head_traces))
+    )
+    assert trace_mass > 0.0
