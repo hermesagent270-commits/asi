@@ -774,3 +774,38 @@ def test_publication_rejects_zero_write_and_nonregular_reread_swap(
         monkeypatch.setattr(campaign, "_link_unnamed_file", link_then_swap)
         with pytest.raises(ValueError, match="regular file"):
             campaign._publish_reserved_json(target, cheap_plan)
+
+
+def test_plan_and_aggregate_reject_type_punned_records_keeping_their_digest(
+    cheap_plan: dict[str, object], data: tuple[np.ndarray, np.ndarray]
+) -> None:
+    """A punned scalar keeps Python equality but changes the canonical bytes.
+
+    ``55 == 55.0`` and ``True == 1``, so a ``!=`` compare admitted records whose
+    own bytes no longer hash to the digest they carry.
+    """
+    punned_plan = copy.deepcopy(cheap_plan)
+    cast(dict[str, Any], punned_plan["config"])["task_length"] = float(
+        cast(dict[str, Any], cheap_plan["config"])["task_length"]
+    )
+    assert punned_plan == cheap_plan
+    with pytest.raises(ValueError, match="literal frozen plan"):
+        campaign.validate_plan(punned_plan, data_x=data[0], data_y=data[1])
+
+    shards = _matrix(cheap_plan, data)
+    aggregate = cast(dict[str, Any], campaign.build_aggregate(cheap_plan, shards))
+    campaign.validate_aggregate(aggregate)
+    for mutate in (
+        lambda value: value["summary"].__setitem__(
+            "shard_count", float(value["summary"]["shard_count"])
+        ),
+        lambda value: value["policy"].__setitem__("development_only", 1),
+    ):
+        punned = copy.deepcopy(aggregate)
+        mutate(punned)
+        assert punned == aggregate
+        unsigned = dict(punned)
+        unsigned.pop("aggregate_sha256")
+        assert campaign._digest(unsigned) != punned["aggregate_sha256"]
+        with pytest.raises(ValueError, match="drifted"):
+            campaign.validate_aggregate(punned)
