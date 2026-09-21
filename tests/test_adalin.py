@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from alberta_framework.benchmarks import adalin
 from alberta_framework.benchmarks.adalin import (
     ADALIN_OFFICIAL_COMMIT,
     ADALIN_PROTOCOL,
@@ -295,3 +296,29 @@ def test_protocol_keeps_paper_and_asi_schedules_and_boundaries_explicit() -> Non
     assert ADALIN_PROTOCOL["asi_examples_per_task"] == 5_000
     assert ADALIN_PROTOCOL["asi_batch_size"] == 1
     assert ADALIN_PROTOCOL["learner_observes_task_boundary"] is False
+
+
+def test_validator_rejects_int_punned_policy_and_protocol_booleans() -> None:
+    """``1 == True`` under Python equality; the receipt contract is exact-type."""
+    cfg = adalin.AdaLinConfig(
+        tasks=2, examples_per_task=4, batch_size=2, hidden_widths=(4, 4), classes=3
+    )
+    rng = np.random.default_rng(0)
+    train_x = rng.standard_normal((4, 6)).astype(np.float32)
+    train_y = rng.integers(0, 3, 4).astype(np.int32)
+    test_x = rng.standard_normal((5, 6)).astype(np.float32)
+    test_y = rng.integers(0, 3, 5).astype(np.int32)
+    result = adalin.run_adalin_development(train_x, train_y, test_x, test_y, config=cfg, seed=7)
+    adalin.validate_adalin_result(json.loads(json.dumps(result)))
+    for section, field, punned in (
+        ("policy", "development_only", 1),
+        ("policy", "scientific_promotion_allowed", 0),
+        ("policy", "negative_outcomes_retained", 1),
+        ("protocol", "development_only", 1),
+        ("protocol", "scientific_promotion_allowed", 0),
+    ):
+        forged = json.loads(json.dumps(result))
+        assert forged[section][field] == punned
+        forged[section][field] = punned
+        with pytest.raises(ValueError, match="policy|protocol"):
+            adalin.validate_adalin_result(forged)
