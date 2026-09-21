@@ -195,15 +195,14 @@ class CORADevelopmentResult:
             raise ValueError("arms must contain exact ArmResult values")
         if tuple(arm.arm_id for arm in self.arms) != ARM_IDS:
             raise ValueError("arms differ from the frozen roster")
-        flags = (
-            self.task_boundaries_available_to_runner,
-            not self.task_ids_available_to_candidate,
-            self.development_only,
-            not self.scientific_promotion_allowed,
-            self.negative_results_must_be_retained,
-            not self.cora_parity_claimed,
-        )
-        if any(type(flag) is not bool or not flag for flag in flags):
+        if (
+            self.task_boundaries_available_to_runner is not True
+            or self.task_ids_available_to_candidate is not False
+            or self.development_only is not True
+            or self.scientific_promotion_allowed is not False
+            or self.negative_results_must_be_retained is not True
+            or self.cora_parity_claimed is not False
+        ):
             raise ValueError("information and nonpromotion contract mismatch")
 
 

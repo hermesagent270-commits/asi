@@ -76,6 +76,10 @@ def test_validator_rejects_promotion_metric_and_resource_forgery() -> None:
     result = run_cora_development(seed=FROZEN_SEEDS[0], steps_per_task=1)
     with pytest.raises(ValueError, match="nonpromotion"):
         validate_result(dataclasses.replace(result, scientific_promotion_allowed=True))
+    with pytest.raises(ValueError, match="nonpromotion"):
+        validate_result(dataclasses.replace(result, scientific_promotion_allowed=0))
+    with pytest.raises(ValueError, match="nonpromotion"):
+        validate_result(dataclasses.replace(result, cora_parity_claimed=0))
     with pytest.raises(ValueError, match="source identity"):
         validate_result(dataclasses.replace(result, runner_source_sha256="0" * 64))
     forged_metric = dataclasses.replace(result.arms[0], continual_evaluation=0.123)
