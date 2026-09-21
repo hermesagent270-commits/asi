@@ -215,6 +215,45 @@ def _normalized_positive_float32_probability(
     return float(np.float32(normalized)), numerator, denominator
 
 
+def _solve_square_system(matrix: list[list[float]], targets: list[float]) -> list[float]:
+    """IEEE-754 binary64 Gaussian elimination with partial pivoting.
+
+    ``np.linalg.lstsq`` is LAPACK/BLAS-backed and disagrees by one ULP across
+    GitHub ``ubuntu-latest`` hosts, which made RiverSwim environment identity
+    hashes host-dependent.
+    """
+
+    n = len(targets)
+    if n < 1 or len(matrix) != n or any(len(row) != n for row in matrix):
+        raise ValueError("linear system must be square")
+    if any(type(value) is not float or not math.isfinite(value) for value in targets):
+        raise ValueError("linear system targets must be finite floats")
+    if any(
+        type(value) is not float or not math.isfinite(value)
+        for row in matrix
+        for value in row
+    ):
+        raise ValueError("linear system entries must be finite floats")
+    tableau = [row[:] + [targets[index]] for index, row in enumerate(matrix)]
+    for column in range(n):
+        pivot = max(range(column, n), key=lambda row: abs(tableau[row][column]))
+        if tableau[pivot][column] == 0.0:
+            raise ValueError("linear system is singular")
+        tableau[column], tableau[pivot] = tableau[pivot], tableau[column]
+        pivot_value = tableau[column][column]
+        for index in range(column, n + 1):
+            tableau[column][index] /= pivot_value
+        for row in range(n):
+            if row == column:
+                continue
+            factor = tableau[row][column]
+            if factor == 0.0:
+                continue
+            for index in range(column, n + 1):
+                tableau[row][index] -= factor * tableau[column][index]
+    return [row[-1] for row in tableau]
+
+
 def _stationary_average_reward(
     transition: np.ndarray,
     step_rewards: np.ndarray,
@@ -252,16 +291,29 @@ def _stationary_average_reward(
     )
 
     balance = generator.T
-    equation_scales = np.max(np.abs(balance), axis=1)
-    nonzero_equations = equation_scales > 0.0
-    balance[nonzero_equations] /= equation_scales[nonzero_equations, None]
-    constraints = np.vstack([balance, np.ones((1, n))])
-    targets = np.zeros(n + 1)
-    targets[-1] = 1.0
-    distribution, *_ = np.linalg.lstsq(constraints, targets, rcond=None)
-    distribution = np.clip(distribution, 0.0, None)
-    distribution = distribution / distribution.sum()
-    return float(distribution @ step_rewards)
+    scaled_rows: list[list[float]] = []
+    for row in balance:
+        scale = max((abs(float(value)) for value in row), default=0.0)
+        if scale > 0.0:
+            scaled_rows.append([float(value) / scale for value in row])
+    if len(scaled_rows) < n - 1:
+        raise ValueError("stationary balance system is underdetermined")
+    matrix = scaled_rows[: n - 1] + [[1.0] * n]
+    targets = [0.0] * (n - 1) + [1.0]
+    distribution = _solve_square_system(matrix, targets)
+    distribution = [max(mass, 0.0) for mass in distribution]
+    total = math.fsum(distribution)
+    if total <= 0.0:
+        raise ValueError("stationary distribution is not positive")
+    rewards = [float(value) for value in np.asarray(step_rewards, dtype=np.float64).reshape(-1)]
+    if len(rewards) != n:
+        raise ValueError("step_rewards must have one entry per state")
+    return float(
+        math.fsum(
+            (mass / total) * reward
+            for mass, reward in zip(distribution, rewards, strict=True)
+        )
+    )
 
 
 # =============================================================================

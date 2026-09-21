@@ -1,5 +1,7 @@
 """Tests for the closed-loop micro-MDPs (actions affect observations)."""
 
+import json
+import struct
 from fractions import Fraction
 from numbers import Real
 
@@ -746,6 +748,33 @@ def test_riverswim_exact_policy_api_has_separate_practical_bound() -> None:
         env.optimal_policy()
     with pytest.raises(ValueError, match="at most 12"):
         env.optimal_average_reward()
+
+
+def test_riverswim_oracle_gain_does_not_follow_lapack_lstsq(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Environment identity hashes this gain; LAPACK lstsq is host-dependent.
+
+    GitHub ubuntu-latest runners disagree by one ULP on the scorecard chain
+    (n_states=6), so 144 successful shards fail exact aggregate validation.
+    """
+    config = RiverSwimConfig(n_states=6)
+    baseline = RiverSwimMDP(config).optimal_average_reward()
+    original = np.linalg.lstsq
+
+    def hostile_lstsq(*args: object, **kwargs: object) -> tuple[object, ...]:
+        distribution, *rest = original(*args, **kwargs)
+        uniform = np.full(np.shape(distribution), 1.0 / np.size(distribution), dtype=np.float64)
+        return (uniform, *rest)
+
+    monkeypatch.setattr(np.linalg, "lstsq", hostile_lstsq)
+    hostile = RiverSwimMDP(config).optimal_average_reward()
+    assert type(hostile) is float
+    assert struct.pack(">d", hostile) == struct.pack(">d", baseline)
+    assert struct.pack(">d", baseline).hex() == "3feb6dc622655c52"
+    round_tripped = json.loads(json.dumps(baseline))
+    assert type(round_tripped) is float
+    assert struct.pack(">d", round_tripped) == struct.pack(">d", baseline)
 
 
 def test_closed_loop_step_counts_saturate_eager_and_outer_jit() -> None:
