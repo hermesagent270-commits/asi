@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -733,6 +734,32 @@ def _require_keys(mapping: dict[str, object], keys: set[str], name: str) -> None
         raise ValueError(f"{name} fields do not match the schema")
 
 
+def _exact_equal_mapping(actual: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    """Compare two flat JSON mappings with exact value types.
+
+    Python equality treats ``1 == True`` and ``0 == False``, so a punned
+    receipt would pass a plain ``!=`` check; nested containers recurse.
+    """
+    if set(actual) != set(expected):
+        return False
+    for key, expected_value in expected.items():
+        value = actual[key]
+        if type(value) is not type(expected_value):
+            return False
+        if isinstance(expected_value, Mapping):
+            if not _exact_equal_mapping(cast(Mapping[str, object], value), expected_value):
+                return False
+        elif isinstance(expected_value, list):
+            if len(cast(list[object], value)) != len(expected_value) or any(
+                type(a) is not type(b) or a != b
+                for a, b in zip(cast(list[object], value), expected_value, strict=True)
+            ):
+                return False
+        elif value != expected_value:
+            return False
+    return True
+
+
 def validate_adalin_result(value: object) -> None:
     """Validate canonical policy, provenance, metrics, and resource relationships."""
     _require_builtin_json(value)
@@ -741,7 +768,7 @@ def validate_adalin_result(value: object) -> None:
     if type(result["schema"]) is not str or result["schema"] != ADALIN_RESULT_SCHEMA:
         raise ValueError("unexpected AdaLin result schema")
     protocol = _exact_dict(result["protocol"], "protocol")
-    if protocol != json.loads(json.dumps(dict(ADALIN_PROTOCOL))):
+    if not _exact_equal_mapping(protocol, json.loads(json.dumps(dict(ADALIN_PROTOCOL)))):
         raise ValueError("protocol does not match the current declaration")
     raw_config = _exact_dict(result["config"], "config")
     expected_config_keys = set(asdict(PAPER_PMNIST_CONFIG))
@@ -955,10 +982,13 @@ def validate_adalin_result(value: object) -> None:
     ):
         raise ValueError("paper comparison must fail closed with explicit gaps")
     policy = _exact_dict(result["policy"], "policy")
-    if policy != {
-        "status": "development-only-nonpromoting",
-        "development_only": True,
-        "scientific_promotion_allowed": False,
-        "negative_outcomes_retained": True,
-    }:
+    if not _exact_equal_mapping(
+        policy,
+        {
+            "status": "development-only-nonpromoting",
+            "development_only": True,
+            "scientific_promotion_allowed": False,
+            "negative_outcomes_retained": True,
+        },
+    ):
         raise ValueError("result policy is not permanently nonpromoting")
