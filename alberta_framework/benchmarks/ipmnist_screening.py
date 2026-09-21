@@ -1022,10 +1022,26 @@ _NOISE_CURVATURE_MODE_NAMES = {
 }
 
 
-def _make_noise_curvature_learner(
-    hp: Mapping[str, float], *, total_steps: int = 1_000_000
+def _noise_curvature_factory_requires_horizon(
+    hp: Mapping[str, float],
 ) -> tuple[LearnerInitFn, ScreeningStepFn]:
-    """Adapt arXiv:2509.19698v3 to the current online IPMNIST MLP."""
+    """Registry placeholder: noise-curvature arms need the executed horizon."""
+    raise ValueError(
+        "noise-curvature arms must be built through instantiate_screening_learner "
+        "with the executed horizon"
+    )
+
+
+def _make_noise_curvature_learner(
+    hp: Mapping[str, float], *, total_steps: int
+) -> tuple[LearnerInitFn, ScreeningStepFn]:
+    """Adapt arXiv:2509.19698v3 to the current online IPMNIST MLP.
+
+    ``total_steps`` is the horizon the runner will actually execute: the
+    scheduler warms only during ``warm_fraction`` of it, so it has no
+    meaningful default and every runner must bind it through
+    :func:`instantiate_screening_learner`.
+    """
 
     if type(total_steps) is not int or not 1 <= total_steps <= (1 << 31) - 1:
         raise ValueError("total_steps must be an exact positive signed-int32 integer")
@@ -8783,7 +8799,7 @@ def _build_registry() -> dict[str, ScreeningSpec]:
                 base_learner="adamw",
                 mechanism="noise_curvature_scheduler",
                 hyperparameters=noise_curvature_registered_hyperparameters(arm_name),
-                factory=_make_noise_curvature_learner,
+                factory=_noise_curvature_factory_requires_horizon,
                 description=(
                     noise_curvature_descriptions[arm_name]
                     + " Adapted from arXiv:2509.19698v3 to the current online "
@@ -8795,6 +8811,26 @@ def _build_registry() -> dict[str, ScreeningSpec]:
 
 
 SCREENING_REGISTRY: Mapping[str, ScreeningSpec] = MappingProxyType(_build_registry())
+
+
+def instantiate_screening_learner(
+    spec: ScreeningSpec, *, total_steps: int
+) -> tuple[LearnerInitFn, ScreeningStepFn]:
+    """Build one arm's ``(init_fn, step_fn)`` bound to the executed horizon.
+
+    Every runner that executes a registered arm must construct the learner
+    here rather than through ``spec.factory`` directly: the noise-curvature
+    scheduler warms its learning rates only during ``warm_fraction`` of the
+    horizon it is told about, so a runner that omitted the horizon would run
+    a different mechanism from the one the screening runner receipts.
+    """
+    if type(spec) is not ScreeningSpec:
+        raise ValueError("spec must be an exact ScreeningSpec")
+    if type(total_steps) is not int or total_steps < 1:
+        raise ValueError("total_steps must be an exact positive integer")
+    if spec.mechanism == "noise_curvature_scheduler":
+        return _make_noise_curvature_learner(spec.hyperparameters, total_steps=total_steps)
+    return spec.factory(spec.hyperparameters)
 
 
 def screening_spec(name: str) -> ScreeningSpec:
@@ -9683,7 +9719,7 @@ def run_recurring_ipmnist_retention_development(
 
     data_x_array = jnp.asarray(resolved_x, dtype=jnp.float32)
     data_y_array = jnp.asarray(resolved_y, dtype=jnp.int32)
-    init_fn, step_fn = spec.factory(spec.hyperparameters)
+    init_fn, step_fn = instantiate_screening_learner(spec, total_steps=sum(typed_lengths))
     params = init_mlp_params(key_init, config)
     state = init_fn(params)
 
@@ -10885,12 +10921,7 @@ def run_screening_config(
     data_y = jnp.asarray(resolved_y, dtype=jnp.int32)
     n_train = int(data_x.shape[0])
 
-    if spec.mechanism == "noise_curvature_scheduler":
-        init_fn, step_fn = _make_noise_curvature_learner(
-            spec.hyperparameters, total_steps=config.n_steps
-        )
-    else:
-        init_fn, step_fn = spec.factory(spec.hyperparameters)
+    init_fn, step_fn = instantiate_screening_learner(spec, total_steps=config.n_steps)
 
     root = jr.key(jnp.uint32(resolved_seed), impl="threefry2x32")
     key_init, key_schedule, key_noise = jr.split(root, 3)

@@ -6,6 +6,7 @@ import copy
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import numpy as np
 import pytest
 
@@ -395,3 +396,78 @@ def test_host_boundaries_reject_bool_subclasses_and_oversized_payloads() -> None
                 n_classes=2,
             ),
         )
+
+
+def test_every_runner_binds_the_executed_horizon_to_the_scheduler(monkeypatch) -> None:
+    """The scheduler warms only during ``warm_fraction`` of the horizon it is told.
+
+    ``spec.factory`` used to carry a 1,000,000-step default, so the ceiling and
+    recurring-retention runners executed a different mechanism from the one the
+    screening runner receipts. Every runner now binds its actual horizon.
+    """
+    from alberta_framework.benchmarks import ipmnist_ceiling
+    from alberta_framework.benchmarks import ipmnist_screening as screening_module
+    from alberta_framework.benchmarks.ipmnist_screening import (
+        instantiate_screening_learner,
+        run_recurring_ipmnist_retention_development,
+    )
+    from alberta_framework.benchmarks.upgd_ipmnist import IPMNISTConfig, init_mlp_params
+
+    spec = screening_spec("noise_curvature_combined")
+    with pytest.raises(ValueError, match="executed horizon"):
+        spec.factory(spec.hyperparameters)
+
+    # Binding the horizon changes the warm-up decision on a short run.
+    config = IPMNISTConfig(
+        n_tasks=2, task_length=40, input_dim=6, hidden1=4, hidden2=4, n_classes=3
+    )
+    params = init_mlp_params(jr.key(0), config)
+    xs = jr.normal(jr.key(2), (config.n_steps, 6), jnp.float32)
+    ys = jr.randint(jr.key(3), (config.n_steps,), 0, 3).astype(jnp.int32)
+
+    def warm_counts(total_steps: int) -> np.ndarray:
+        init_fn, step_fn = instantiate_screening_learner(spec, total_steps=total_steps)
+
+        def one(carry, example):
+            step_params, step_state, key = carry
+            key, step_key = jr.split(key)
+            step_params, step_state, _ = step_fn(
+                step_params, step_state, example[0], example[1], step_key
+            )
+            return (step_params, step_state, key), None
+
+        (_, final_state, _), _ = jax.lax.scan(one, (params, init_fn(params), jr.key(1)), (xs, ys))
+        return np.asarray(final_state.warm_counts)
+
+    assert not np.array_equal(warm_counts(config.n_steps), warm_counts(1_000_000))
+
+    # Both non-screening runners hand their executed horizon to the scheduler.
+    captured: list[int] = []
+
+    def spy(hp, *, total_steps):
+        captured.append(total_steps)
+        raise RuntimeError("captured horizon")
+
+    monkeypatch.setattr(screening_module, "_make_noise_curvature_learner", spy)
+    tiny = IPMNISTConfig(n_tasks=3, task_length=2, input_dim=4, hidden1=3, hidden2=2, n_classes=2)
+    data_x = np.asarray(np.random.default_rng(0).normal(size=(9, 4)), dtype=np.float32)
+    data_y = np.asarray([0, 1, 1, 0, 1, 0, 1, 0, 1], dtype=np.int32)
+    with pytest.raises(RuntimeError, match="captured horizon"):
+        run_recurring_ipmnist_retention_development(
+            data_x,
+            data_y,
+            spec,
+            seed=19,
+            config=tiny,
+            phase_lengths=(2, 3, 2),
+            permutations=(
+                np.asarray([0, 1, 2, 3], dtype=np.int32),
+                np.asarray([3, 1, 0, 2], dtype=np.int32),
+                np.asarray([0, 1, 2, 3], dtype=np.int32),
+            ),
+            sentinel_indices=(7, 8),
+            relearning_window=1,
+        )
+    with pytest.raises(RuntimeError, match="captured horizon"):
+        ipmnist_ceiling.run_arm_per_step("noise_curvature_combined", 1, 3, "same")
+    assert captured == [7, IPMNISTConfig(n_tasks=3).n_steps]
