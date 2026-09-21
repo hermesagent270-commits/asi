@@ -177,3 +177,16 @@ def test_end_to_end_record_is_strict_nonpromoting_and_resource_matched() -> None
     hostile["resources"]["timing_telemetry_seconds"] = True
     with pytest.raises(ValueError, match="invalid partial-reset result fields"):
         validate_partial_reset_development_record(hostile)
+
+    for section, field, punned in (
+        ("policy", "development_only", 1),
+        ("policy", "scientific_promotion_allowed", 0),
+        ("policy", "publication_equivalent", 0),
+        ("policy", "retain_negative_outcome", 1),
+        ("resources", "timing_is_selection_metric", 0),
+    ):
+        forged = copy.deepcopy(records[0])
+        assert forged[section][field] == punned
+        forged[section][field] = punned
+        with pytest.raises(ValueError, match="permanently nonpromoting|exact boolean"):
+            validate_partial_reset_development_record(forged)
