@@ -36,7 +36,9 @@ The roster separates:
 
 1. encoder-only ASI transfer;
 2. no-pretraining with the same frozen random-feature architecture;
-3. a permuted transferred-encoder causal control;
+3. a permuted transferred-encoder causal control (the transferred encoder with its
+   weight entries shuffled under a seed-bound key; a latent-coordinate permutation
+   would be undone by the fresh predictor);
 4. a full encoder-and-predictor warm-start ceiling;
 5. transferred encoder with its decision interface disabled;
 6. exact no-model mechanism-off; and

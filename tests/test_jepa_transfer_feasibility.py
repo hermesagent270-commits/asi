@@ -167,3 +167,37 @@ def test_result_research_pins_are_deeply_immutable(result: lane.JEPATransferResu
 def test_protocol_rejects_hostile_or_unmatched_axes(changes: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         lane.JEPATransferProtocol(**changes)  # type: ignore[arg-type]
+
+
+def test_permuted_encoder_control_is_not_a_latent_relabeling() -> None:
+    """The causal control must destroy encoder structure, not relabel latents.
+
+    The fresh predictor consumes ``concat(latent, one_hot(action),
+    latent (x) one_hot)`` through i.i.d.-initialized linear heads, so any
+    permutation of the latent coordinates is undone by permuting the
+    predictor's weights: a column-reversed encoder reproduced the transfer
+    arm's whole deployment. The control keeps the transferred weight multiset
+    but must not be any column permutation of the transferred encoder.
+    """
+    protocol = _tiny()
+    seed = lane.FROZEN_DEVELOPMENT_SEEDS[0]
+    pretrained, _, _, _ = lane._pretrain(protocol, seed)
+    _, transfer = lane._deployment_state("asi_encoder_transfer", seed, pretrained)
+    _, permuted = lane._deployment_state("encoder_permuted", seed, pretrained)
+    _, permuted_again = lane._deployment_state("encoder_permuted", seed, pretrained)
+    transfer_matrix = jnp.asarray(transfer.encoder_matrix)  # type: ignore[attr-defined]
+    permuted_matrix = jnp.asarray(permuted.encoder_matrix)  # type: ignore[attr-defined]
+    assert permuted_matrix.shape == transfer_matrix.shape
+    assert bool(jnp.array_equal(permuted_matrix, permuted_again.encoder_matrix))  # type: ignore[attr-defined]
+    assert bool(
+        jnp.array_equal(jnp.sort(permuted_matrix.ravel()), jnp.sort(transfer_matrix.ravel()))
+    )
+    transfer_columns = sorted(map(tuple, transfer_matrix.T.tolist()))
+    permuted_columns = sorted(map(tuple, permuted_matrix.T.tolist()))
+    assert permuted_columns != transfer_columns
+    assert bool(
+        jnp.array_equal(
+            jnp.sort(jnp.asarray(permuted.encoder_bias)),  # type: ignore[attr-defined]
+            jnp.sort(jnp.asarray(transfer.encoder_bias)),  # type: ignore[attr-defined]
+        )
+    )

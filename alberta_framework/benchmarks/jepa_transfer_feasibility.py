@@ -516,8 +516,15 @@ def _deployment_state(
         return model, learned
     matrix, bias = learned.encoder_matrix, learned.encoder_bias
     if arm_id == "encoder_permuted":
-        matrix = matrix[:, ::-1]
-        bias = bias[::-1]
+        # Shuffle the transferred encoder's flattened entries (and its bias
+        # entries) under a seed-bound key: the weight distribution is kept and
+        # every learned structure is destroyed. A latent-coordinate permutation
+        # would not do, because the fresh predictor is permutation-equivariant
+        # in the latent index, so reversing the columns only relabels the
+        # latents and the arm reproduces encoder transfer exactly.
+        matrix_key, bias_key = jr.split(jr.fold_in(jr.key(seed), 3))
+        matrix = jr.permutation(matrix_key, matrix.ravel()).reshape(matrix.shape)
+        bias = jr.permutation(bias_key, bias)
     return model, fresh.replace(  # type: ignore[attr-defined]
         encoder_matrix=matrix, encoder_bias=bias
     )
