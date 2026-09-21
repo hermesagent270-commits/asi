@@ -33,7 +33,10 @@ from alberta_framework.benchmarks.ipmnist_provenance import (
     runtime_identity,
     source_identities,
 )
-from alberta_framework.benchmarks.ipmnist_screening import screening_spec
+from alberta_framework.benchmarks.ipmnist_screening import (
+    instantiate_screening_learner,
+    screening_spec,
+)
 from alberta_framework.benchmarks.upgd_ipmnist import (
     IPMNISTConfig,
     build_schedule,
@@ -64,7 +67,7 @@ def run_arm_per_step(
     seed = require_jax_seed(seed)
     config = IPMNISTConfig(n_tasks=n_tasks)
     spec = screening_spec(spec_name)
-    init_fn, step_fn = spec.factory(spec.hyperparameters)
+    init_fn, step_fn = instantiate_screening_learner(spec, total_steps=config.n_steps)
     data_x_numpy, data_y_numpy = _load_train()
     data_x = jnp.asarray(data_x_numpy, dtype=jnp.float32)
     data_y = jnp.asarray(data_y_numpy, dtype=jnp.int32)
