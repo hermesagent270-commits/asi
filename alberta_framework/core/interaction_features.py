@@ -887,7 +887,7 @@ class FixedBudgetInteractionLearner:
         # negative entry passes a positive-sum check but its log inside the
         # categorical draw is NaN, which collapses the draw onto one generator.
         if type(generator_mix) is not tuple or len(generator_mix) != 3:
-            raise ValueError("generator_mix must have three entries")
+            raise ValueError("generator_mix must be a tuple of three entries")
         validated_generator_mix = tuple(
             validated_float32_scalar(f"generator_mix[{index}]", value, lower=0.0)
             for index, value in enumerate(generator_mix)
