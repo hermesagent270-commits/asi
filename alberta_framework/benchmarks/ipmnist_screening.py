@@ -10056,8 +10056,15 @@ def validate_partial_reset_development_record(record: object) -> dict[str, Any]:
         "scientific_promotion_allowed": False,
         "publication_equivalent": False,
         "retain_negative_outcome": True,
-    }:
+    } or any(type(value) is not bool for value in policy.values()):
         raise ValueError("partial-reset records are permanently nonpromoting")
+    resources_block = payload["resources"]
+    if (
+        type(resources_block) is dict
+        and "timing_is_selection_metric" in resources_block
+        and type(resources_block["timing_is_selection_metric"]) is not bool
+    ):
+        raise ValueError("timing_is_selection_metric must be an exact boolean")
     try:
         config_raw = _partial_reset_exact_object(
             payload["config"],
