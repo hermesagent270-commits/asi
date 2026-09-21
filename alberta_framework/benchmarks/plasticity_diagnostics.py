@@ -618,6 +618,24 @@ def _state_sha256(state: object) -> str:
     return digest.hexdigest()
 
 
+def _dead_unit_fraction(
+    state: DiagnosticMLPState, inputs: np.ndarray, width: int
+) -> tuple[float, np.ndarray]:
+    """Return the dead-unit fraction over all three hidden layers and the last layer."""
+    _, hidden1, hidden2, hidden3 = _forward_diagnostic(state, jnp.asarray(inputs))
+    host1, host2, host3 = (
+        np.asarray(hidden1),
+        np.asarray(hidden2),
+        np.asarray(hidden3),
+    )
+    dead_count = (
+        np.sum(np.all(host1 == 0.0, axis=0))
+        + np.sum(np.all(host2 == 0.0, axis=0))
+        + np.sum(np.all(host3 == 0.0, axis=0))
+    )
+    return float(dead_count / (3 * width)), host3
+
+
 def _effective_rank(features: np.ndarray) -> float:
     singular = np.linalg.svd(features, compute_uv=False)
     total = float(singular.sum())
@@ -663,18 +681,10 @@ def _run_arm(
             task_losses.append(float(loss))
             for index, replaced in enumerate(replaced_by_layer):
                 replacements_by_layer[index] += int(replaced)
-        _, hidden1, hidden2, hidden3 = _forward_diagnostic(state, jnp.asarray(inputs))
-        host1, host2, host3 = (
-            np.asarray(hidden1),
-            np.asarray(hidden2),
-            np.asarray(hidden3),
-        )
-        dead_count = np.sum(np.all(host1 == 0.0, axis=0)) + np.sum(
-            np.all(host2 == 0.0, axis=0)
-        ) + np.sum(np.all(host3 == 0.0, axis=0))
+        dead_fraction, host3 = _dead_unit_fraction(state, inputs, profile.hidden_width)
         accuracies.append(float(correct / len(labels)))
         losses.append(float(np.mean(task_losses)))
-        dead.append(float(dead_count / (3 * profile.hidden_width)))
+        dead.append(dead_fraction)
         ranks.append(_effective_rank(host3))
     elapsed = time.perf_counter_ns() - start
     steps = profile.n_tasks * profile.examples_per_task

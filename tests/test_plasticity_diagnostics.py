@@ -120,8 +120,47 @@ def test_exact_resource_receipts_and_validator_reject_forgery() -> None:
         validate_result(forged)
     with pytest.raises(ValueError, match="equal total"):
         dataclasses.replace(result.arms[2].receipt, replacements_by_layer=(0, 0, 0))
+    # One layer claims more replacements than the run has steps: the total (11) still
+    # sits inside the three-layer bound, so only the per-layer bound can reject it.
+    over_layer = dataclasses.replace(
+        result.arms[2].receipt, replacements=11, replacements_by_layer=(9, 1, 1)
+    )
+    with pytest.raises(ValueError, match="resource receipt"):
+        validate_result(
+            dataclasses.replace(
+                result,
+                arms=(*result.arms[:2], dataclasses.replace(result.arms[2], receipt=over_layer)),
+            )
+        )
+    # A contract-smoke candidate whose replacements all land in one layer never
+    # exercised the other two replacement paths.
+    one_layer = dataclasses.replace(
+        result.arms[2].receipt, replacements=1, replacements_by_layer=(1, 0, 0)
+    )
+    with pytest.raises(ValueError, match="every CBP replacement path"):
+        validate_result(
+            dataclasses.replace(
+                result,
+                arms=(*result.arms[:2], dataclasses.replace(result.arms[2], receipt=one_layer)),
+            )
+        )
     with pytest.raises(ValueError, match="exact DiagnosticResult"):
         validate_result(dataclasses.asdict(result))
+
+
+def test_dead_unit_fraction_is_normalized_over_three_hidden_layers() -> None:
+    profile = PROFILES["contract-smoke"]
+    width = profile.hidden_width
+    inputs = np.ones((2, INPUT_DIM), dtype=np.float32)
+    state = plasticity_diagnostics._init_diagnostic_state(jax.random.key(0), width)
+    all_dead = jax.tree.map(lambda leaf: leaf * 0, state)
+    fraction, last_hidden = plasticity_diagnostics._dead_unit_fraction(all_dead, inputs, width)
+    assert fraction == 1.0
+    assert last_hidden.shape == (2, width)
+    # Layer one alive through a positive bias; layers two and three dead.
+    first_alive = all_dead._replace(b1=all_dead.b1 + 1.0)
+    fraction, _ = plasticity_diagnostics._dead_unit_fraction(first_alive, inputs, width)
+    assert fraction == 2.0 / 3.0
 
 
 def test_profiles_are_immutable_and_result_binds_the_complete_profile() -> None:
