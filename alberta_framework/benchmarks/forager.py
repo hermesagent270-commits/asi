@@ -287,6 +287,13 @@ def _positive_jax_float32(value: int | float) -> bool:
     return bool(np.isfinite(converted) and converted > 0.0)
 
 
+def _below_one_jax_float32(value: int | float) -> bool:
+    """Return whether an open ``[0, 1)`` bound still holds after float32 rounding."""
+    with np.errstate(over="ignore", invalid="ignore"):
+        converted = np.float32(value)
+    return bool(converted < np.float32(1.0))
+
+
 def _validated_action(value: Any) -> int:
     """Validate a scalar integer action before any host-side conversion."""
     array = np.asarray(value)
@@ -623,6 +630,7 @@ class ForagerFeatureConfig:
             or not _finite_jax_float32(decay)
             or decay < 0.0
             or decay >= 1.0
+            or not _below_one_jax_float32(decay)
             for decay in self.reward_trace_decays
         ):
             raise ValueError("reward_trace_decays must lie in [0, 1)")
@@ -977,6 +985,7 @@ class AlbertaForagerConfig:
             or not math.isfinite(self.actor_epsilon)
             or not _finite_jax_float32(self.actor_epsilon)
             or not 0.0 <= self.actor_epsilon < 1.0
+            or not _below_one_jax_float32(self.actor_epsilon)
         ):
             raise ValueError("actor_epsilon must be finite and lie in [0, 1)")
         positive_finite = {
@@ -1009,6 +1018,7 @@ class AlbertaForagerConfig:
                 or not math.isfinite(self.td_error_normalizer_decay)
                 or not _finite_jax_float32(self.td_error_normalizer_decay)
                 or not 0.0 <= self.td_error_normalizer_decay < 1.0
+                or not _below_one_jax_float32(self.td_error_normalizer_decay)
             )
         ):
             raise ValueError("td_error_normalizer_decay must be finite and lie in [0, 1)")
@@ -1045,6 +1055,7 @@ class AlbertaForagerConfig:
             or not math.isfinite(self.recurrent_scale)
             or not _finite_jax_float32(self.recurrent_scale)
             or not 0.0 <= self.recurrent_scale < 1.0
+            or not _below_one_jax_float32(self.recurrent_scale)
         ):
             raise ValueError("recurrent_scale must be finite and lie in [0, 1)")
         if (
