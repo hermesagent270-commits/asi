@@ -1633,7 +1633,10 @@ def load_evidence_artifact(path: Path) -> dict[str, object]:
 def _finite_number(value: object) -> float | None:
     if type(value) is bool or (type(value) is not int and type(value) is not float):
         return None
-    numeric = float(value)
+    try:
+        numeric = float(value)
+    except OverflowError:
+        return None
     return numeric if math.isfinite(numeric) else None
 
 
@@ -1712,7 +1715,7 @@ def _validate_phase(
     if phase is None:
         return
     _exact_keys(phase, _PHASE_RECORD_KEYS, location, errors)
-    if phase.get("phase_index") != phase_index:
+    if _strict_int(phase.get("phase_index")) != phase_index:
         errors.append(f"{location}.phase_index is inconsistent")
     if phase.get("phase_name") != SEGMENT_NAMES[phase_index]:
         errors.append(f"{location}.phase_name is inconsistent")

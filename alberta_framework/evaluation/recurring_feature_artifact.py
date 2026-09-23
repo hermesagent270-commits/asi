@@ -918,7 +918,10 @@ def _mapping(
 def _finite_number(value: object) -> float | None:
     if type(value) is bool or (type(value) is not int and type(value) is not float):
         return None
-    numeric = float(value)
+    try:
+        numeric = float(value)
+    except OverflowError:
+        return None
     return numeric if math.isfinite(numeric) else None
 
 

@@ -1419,3 +1419,39 @@ def test_cli_rejects_injected_noncanonical_schedule_before_build(
     )
     assert code == 2
     assert not output.exists()
+
+
+def test_bool_punned_phase_index_fails_even_when_rehashed(
+    accepted_artifact: dict[str, object],
+):
+    """``True == 1`` must not let a boolean stand in for phase index 1."""
+    changed = copy.deepcopy(accepted_artifact)
+    phase = changed["scientific_payload"]["seed_records"][0]["conditions"][CONDITION_PRIMARY][
+        "phase_windows"
+    ][1]
+    assert phase["phase_index"] == 1
+    phase["phase_index"] = True
+    _rehash(changed)
+    validation = validate_evidence_artifact(changed)
+    assert not validation.valid
+    assert not validation.accepted
+    assert any("phase_windows[1].phase_index" in error for error in validation.errors)
+
+
+def test_overflowing_json_integer_is_invalid_not_a_crash(
+    accepted_artifact: dict[str, object],
+    tmp_path: Path,
+):
+    """A JSON integer beyond float range must fail closed, not raise OverflowError."""
+    changed = copy.deepcopy(accepted_artifact)
+    phase = changed["scientific_payload"]["seed_records"][0]["conditions"][CONDITION_PRIMARY][
+        "phase_windows"
+    ][1]
+    phase["tail_squared_error_sum"] = 10**400
+    _rehash(changed)
+    validation = validate_evidence_artifact(changed)
+    assert not validation.valid
+    assert not validation.accepted
+    path = tmp_path / "overflow.json"
+    path.write_text(artifact_json(changed), encoding="utf-8")
+    assert scale_robust_feature_cli.main(["--verify", str(path)]) == 2
