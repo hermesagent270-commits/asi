@@ -1261,6 +1261,14 @@ def _canonical_sha256(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+def _json_exact_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values by canonical bytes so ``1 == 1.0 == True`` cannot pun."""
+    try:
+        return canonical_json_bytes({"value": left}) == canonical_json_bytes({"value": right})
+    except ForagerMatchedExecutorError:
+        return False
+
+
 def _freeze(value: Any) -> Any:
     if type(value) is dict:
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -4011,7 +4019,11 @@ def parse_seed_artifact_bundle(
         ("trace artifact", trace_artifact, expected_trace),
         ("scoring record", scoring_record, expected_scoring),
     ):
-        drifted = [key for key, expected_value in expected.items() if actual[key] != expected_value]
+        drifted = [
+            key
+            for key, expected_value in expected.items()
+            if not _json_exact_equal(actual[key], expected_value)
+        ]
         if drifted:
             raise ForagerMatchedExecutorError(f"seed {label} drift: {drifted}")
     _sha256(raw_artifact["container_export_sha256"], "raw OCI export digest")
@@ -4030,7 +4042,7 @@ def parse_seed_artifact_bundle(
     )
     _sha256(trace_artifact["reward_trace_content_sha256"], "reward trace content digest")
     _string(trace_artifact["reward_dtype"], "reward dtype", maximum=32)
-    if trace_artifact["reward_shape"] != [plan.protocol.horizon]:
+    if not _json_exact_equal(trace_artifact["reward_shape"], [plan.protocol.horizon]):
         raise ForagerMatchedExecutorError("reward trace shape differs from exact horizon")
     if (
         payload["raw_artifact_sha256"] != raw_digest
@@ -4047,7 +4059,7 @@ def parse_seed_artifact_bundle(
         trace_artifact=cast(Mapping[str, Any], _freeze(trace_artifact)),
         scoring_record=cast(Mapping[str, Any], _freeze(scoring_record)),
     )
-    if result.to_dict() != payload:
+    if not _json_exact_equal(result.to_dict(), payload):
         raise ForagerMatchedExecutorError("seed artifact bundle is not canonical")
     return result
 
