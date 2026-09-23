@@ -1,6 +1,9 @@
 """Tests for checkpoint save/load utilities."""
 
+from typing import NamedTuple
+
 import chex
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import orbax.checkpoint as ocp
@@ -18,6 +21,15 @@ from alberta_framework import (
     load_checkpoint_metadata,
     save_checkpoint,
 )
+from alberta_framework.core.recurrent_trace_actor_critic import (
+    RecurrentTraceActorCriticAgent,
+    RecurrentTraceActorCriticConfig,
+)
+
+
+class _UnsortedPair(NamedTuple):
+    zeta: jax.Array
+    alpha: jax.Array
 
 
 class TestSaveLoadRoundTrip:
@@ -64,6 +76,30 @@ class TestSaveLoadRoundTrip:
 
         with pytest.raises(ValueError, match="dtype"):
             load_checkpoint(template, tmp_path / "dtype_mismatch")
+
+    def test_namedtuple_state_with_unsorted_fields_round_trips(self, tmp_path):
+        """Orbax stores NamedTuple fields sorted by name, not in field order."""
+        agent = RecurrentTraceActorCriticAgent(
+            RecurrentTraceActorCriticConfig(
+                n_actions=2, hidden_size=4, encoder_width=4, output_width=4
+            )
+        )
+        state = agent.init(3, jr.key(0))
+        state = agent.start(state, jnp.ones(3, dtype=jnp.float32))[0]
+
+        save_checkpoint(state, tmp_path / "rtu")
+        loaded, _ = load_checkpoint(agent.init(3, jr.key(1)), tmp_path / "rtu")
+
+        chex.assert_trees_all_equal(loaded, state)
+
+    def test_namedtuple_template_dtype_still_cannot_cast(self, tmp_path):
+        saved = _UnsortedPair(zeta=jnp.arange(3, dtype=jnp.int32), alpha=jnp.float32(1.0))
+        template = _UnsortedPair(zeta=jnp.zeros(3, dtype=jnp.float32), alpha=jnp.float32(0.0))
+
+        save_checkpoint(saved, tmp_path / "pair")
+
+        with pytest.raises(ValueError, match="dtype"):
+            load_checkpoint(template, tmp_path / "pair")
 
     def test_user_metadata_cannot_forge_empty_array_manifest(self, tmp_path):
         saved = {"x": jnp.array([42.0], dtype=jnp.float32)}

@@ -146,7 +146,10 @@ def _validate_restore_template(path: Path, template: Any) -> None:
 
     saved_tree = ocp.StandardCheckpointHandler().metadata(path / "state").tree
     saved_leaves = jax.tree.leaves(saved_tree)
-    template_leaves = jax.tree.leaves(template)
+    # Orbax records the saved tree in its serialized form, where NamedTuple
+    # fields are keyed and ordered by name. Serialize the template the same
+    # way so leaves pair by key path rather than by NamedTuple field order.
+    template_leaves = jax.tree.leaves(ocp.tree.serialize_tree(template))
     if len(saved_leaves) != len(template_leaves):
         raise ValueError("checkpoint state leaf count does not match the restore template")
 
