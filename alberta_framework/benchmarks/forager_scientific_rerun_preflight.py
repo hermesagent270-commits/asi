@@ -253,6 +253,20 @@ def _plain(value: object) -> object:
     raise ForagerScientificRerunPreflightError("record contains a non-JSON value")
 
 
+def _exactly_equal(observed: object, expected: object) -> bool:
+    """Compare values and exact types, so ``0``/``False`` and ``n``/``float(n)`` differ."""
+    if type(observed) is not type(expected):
+        return False
+    if type(expected) is tuple:
+        observed_items = cast(tuple[object, ...], observed)
+        expected_items = cast(tuple[object, ...], expected)
+        return len(observed_items) == len(expected_items) and all(
+            _exactly_equal(item, reference)
+            for item, reference in zip(observed_items, expected_items, strict=True)
+        )
+    return observed == expected
+
+
 def build_run_plan() -> ForagerScientificRerunPlan:
     """Return the exact nonpromoting 210-cell open-tuning schedule contract."""
     return ForagerScientificRerunPlan(
@@ -297,7 +311,7 @@ def validate_run_plan(value: object) -> ForagerScientificRerunPlan:
         True,
     )
     observed = tuple(getattr(value, field.name) for field in dataclasses.fields(value))
-    if observed != expected:
+    if not _exactly_equal(observed, expected):
         raise ForagerScientificRerunPreflightError("run plan differs from the frozen contract")
     return value
 

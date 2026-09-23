@@ -190,6 +190,24 @@ def test_hostile_plan_and_report_mutations_fail_closed(
         preflight.validate_run_plan(dataclasses.asdict(plan))
 
 
+@pytest.mark.parametrize(
+    ("field", "punned"),
+    [
+        ("promotion_authorized", 0),
+        ("development_only", 1),
+        ("timing_is_telemetry_only", 1),
+        ("negative_outcomes_append_only", 1),
+        ("horizon_per_cell", float(preflight.build_run_plan().horizon_per_cell)),
+        ("cell_count", float(preflight.CELL_COUNT)),
+        ("seeds", tuple(float(seed) for seed in preflight.build_run_plan().seeds)),
+    ],
+)
+def test_run_plan_rejects_equal_valued_type_punned_fields(field: str, punned: object) -> None:
+    # ``0 == False``, ``1 == True`` and ``n == float(n)`` must not satisfy the frozen plan.
+    with pytest.raises(preflight.ForagerScientificRerunPreflightError, match="frozen contract"):
+        dataclasses.replace(preflight.build_run_plan(), **{field: punned})
+
+
 def test_cli_emits_machine_readable_blocker_and_never_authorizes(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
