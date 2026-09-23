@@ -9,6 +9,7 @@ import math
 import sqlite3
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -247,3 +248,48 @@ def test_rejects_dishonest_labels_and_current_foragax_pairing(tmp_path: Path) ->
             environment={"runtime": "foragax"},
             agent_metadata={"seed": legacy.seed, "result_source": "in_tree"},
         )
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda config: config["metaParameters"]["environment"].__setitem__(
+                "aperture", True
+            ),
+            "aperture",
+        ),
+        (
+            lambda config: config["metaParameters"]["environment"].__setitem__(
+                "aperture", 1.0
+            ),
+            "aperture",
+        ),
+        (lambda config: config.__setitem__("total_steps", 500_000.0), "total_steps"),
+        (lambda config: config.__setitem__("episode_cutoff", -1.0), "episode_cutoff"),
+    ],
+)
+def test_rejects_type_punned_config_integers(
+    tmp_path: Path,
+    mutate: Callable[[dict[str, Any]], object],
+    message: str,
+) -> None:
+    database_path, config_path = _write_artifacts(tmp_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    mutate(config)
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        import_legacy_fov_sqlite(_spec(database_path, config_path))
+
+
+def test_rejects_type_punned_result_config_id(tmp_path: Path) -> None:
+    database_path, config_path = _write_artifacts(tmp_path)
+    connection = sqlite3.connect(database_path)
+    connection.execute("UPDATE results SET config_id = 8675309.0")
+    connection.commit()
+    assert connection.execute("SELECT DISTINCT typeof(config_id) FROM results").fetchall() == [
+        ("real",)
+    ]
+    connection.close()
+    with pytest.raises(ValueError, match="unknown configuration"):
+        import_legacy_fov_sqlite(_spec(database_path, config_path))

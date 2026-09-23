@@ -395,7 +395,12 @@ def _legacy_fov_config(
         )
     if config["problem"] != "ForagerTwoBiomeLarge":
         raise ValueError(f"{config_path} is not a ForagerTwoBiomeLarge config")
-    if config["total_steps"] != LEGACY_FOV_STEPS or config["episode_cutoff"] != -1:
+    if (
+        type(config["total_steps"]) is not int
+        or config["total_steps"] != LEGACY_FOV_STEPS
+        or type(config["episode_cutoff"]) is not int
+        or config["episode_cutoff"] != -1
+    ):
         raise ValueError(
             f"{config_path} must use total_steps={LEGACY_FOV_STEPS} and episode_cutoff=-1"
         )
@@ -404,7 +409,7 @@ def _legacy_fov_config(
         raise ValueError(f"{config_path} metaParameters must be an object")
     flattened = _flatten_json(meta_parameters)
     aperture = flattened.get("environment.aperture")
-    if aperture != spec.expected_aperture_size:
+    if type(aperture) is not int or aperture != spec.expected_aperture_size:
         raise ValueError(
             f"{config_path} aperture is {aperture!r}; expected {spec.expected_aperture_size}"
         )
@@ -518,7 +523,7 @@ def _legacy_fov_rows(
     rewards_by_seed: dict[int, list[float]] = {seed: [] for seed in spec.expected_stored_seeds}
     seen: set[tuple[int, int]] = set()
     for row_config_id, seed, frame, reward in result_rows:
-        if row_config_id != config_id:
+        if type(row_config_id) is not int or row_config_id != config_id:
             raise ValueError(f"{path} contains a result for an unknown configuration")
         if not isinstance(seed, int) or isinstance(seed, bool) or seed not in expected_seed_set:
             raise ValueError(f"{path} contains unexpected stored seed {seed!r}")
