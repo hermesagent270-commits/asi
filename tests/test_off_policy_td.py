@@ -457,6 +457,42 @@ class TestETDLambda:
         # (using rho_t instead of rho_{t-1} at each step gives F_3 = 4.052)
         chex.assert_trees_all_close(state.follow_on_trace, jnp.float32(1.259), atol=1e-5)
 
+    def test_terminal_reduction_ignores_the_carried_ratio(self) -> None:
+        """rho=1, gamma=0, lambda=0 is the LMS/TD(0) terminating update even
+        after a transition with rho != 1: gamma_t=0 zeroes the carried
+        rho_{t-1} * F_{t-1} term, so F_t = M_t = i_t = 1.
+        """
+        learner = ETDLinearLearner(step_size=0.05, trace_decay=0.0)
+        lms = LinearLearner(optimizer=LMS(step_size=0.05))
+        state = learner.init(2)
+        warmup = learner.update(
+            state,
+            jnp.array([1.0, -2.0], dtype=jnp.float32),
+            jnp.float32(0.3),
+            jnp.array([0.5, 0.5], dtype=jnp.float32),
+            jnp.float32(0.9),
+            jnp.float32(4.0),
+        ).state
+        assert float(warmup.previous_rho) == 4.0
+        assert float(warmup.follow_on_trace) == 1.0
+        observation = jnp.array([0.25, 1.5], dtype=jnp.float32)
+        target = jnp.float32(2.0)
+        etd = learner.update(
+            warmup,
+            observation,
+            target,
+            jnp.zeros(2, dtype=jnp.float32),
+            jnp.float32(0.0),
+            jnp.float32(1.0),
+        ).state
+        assert float(etd.follow_on_trace) == 1.0
+        assert float(etd.emphasis) == 1.0
+        lms_state = lms.init(2)
+        lms_state = lms_state.replace(weights=warmup.weights, bias=warmup.bias)
+        expected = lms.update(lms_state, observation, target).state
+        chex.assert_trees_all_close(etd.weights, expected.weights, rtol=1e-6)
+        chex.assert_trees_all_close(etd.bias, expected.bias, rtol=1e-6)
+
     def test_update_is_jit_compatible(self) -> None:
         learner = ETDLinearLearner(step_size=0.05, trace_decay=0.5)
         state = learner.init(4)

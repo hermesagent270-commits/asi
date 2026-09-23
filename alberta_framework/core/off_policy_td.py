@@ -694,7 +694,8 @@ class ETDLinearLearner:
     from the prior call (``state.previous_rho``, initialised to ``1``) and the
     current transition's discount; only the eligibility trace uses the
     current ``rho``. With ``rho=1``, ``gamma=0``, and ``lambda=0``, this
-    reduces to the standard LMS/TD(0) terminating update.
+    reduces to the standard LMS/TD(0) terminating update for any carried
+    ratio, because ``gamma_t = 0`` zeroes the ``rho_{t-1} * F_{t-1}`` term.
 
     Attributes:
         step_size: Learning rate alpha
