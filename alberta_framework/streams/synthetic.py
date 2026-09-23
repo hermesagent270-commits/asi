@@ -870,7 +870,9 @@ class PeriodicChangeStream:
         key, key_x, key_noise = jr.split(state.key, 3)
 
         # Compute oscillating weights: w(t) = base + amplitude * sin(2π * t / period + phase)
-        t = state.step_count.astype(jnp.float32)
+        # Reduce the int32 clock modulo the integer period first: float32(t)
+        # loses the phase once t exceeds 2**24.
+        t = (state.step_count % self._period).astype(jnp.float32)
         oscillation = self._amplitude * jnp.sin(2.0 * jnp.pi * t / self._period + state.phases)
         true_weights = state.base_weights + oscillation
 

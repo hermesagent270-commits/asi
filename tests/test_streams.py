@@ -385,6 +385,16 @@ class TestPeriodicChangeStream:
         chex.assert_trees_all_close(timestep1.observation, timestep2.observation)
         chex.assert_trees_all_close(timestep1.target, timestep2.target)
 
+    @pytest.mark.parametrize("cycles", [1, 10_000, 100_000, 2_000_000])
+    def test_weights_repeat_exactly_each_period(self, cycles):
+        """float32(t) * 2*pi / period loses the phase once t exceeds 2**24."""
+        stream = PeriodicChangeStream(feature_dim=2, period=1000, noise_std=0.0)
+        state = stream.init(jax.random.key(0))
+        early, _ = stream.step(state.replace(step_count=jnp.asarray(7, dtype=jnp.int32)), 0)
+        late_step = jnp.asarray(7 + 1000 * cycles, dtype=jnp.int32)
+        late, _ = stream.step(state.replace(step_count=late_step), 0)
+        np.testing.assert_array_equal(np.asarray(late.target), np.asarray(early.target))
+
 
 class TestScaledStreamWrapper:
     """Tests for the ScaledStreamWrapper class."""

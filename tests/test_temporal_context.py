@@ -479,3 +479,23 @@ def test_temporal_context_rejects_spoofed_int_class_and_negative_ratios() -> Non
 
     with pytest.raises(ValueError, match="ema_decay"):
         TemporalContextConfig(input_dim=4, ema_decay=SpoofedIntFloat(0.5))
+
+
+@pytest.mark.parametrize("period", [50.0, 7.0, 0.75, 12.5])
+@pytest.mark.parametrize("step_count", [3, 10_000_000, 30_000_000, 2**31 - 1])
+def test_phase_code_stays_exact_across_the_int32_lifetime(
+    period: float, step_count: int
+) -> None:
+    """The float32 angle ``2*pi*t/p`` loses the phase once ``t`` exceeds 2**24."""
+    config = TemporalContextConfig(
+        input_dim=1, include_ema=False, include_delta=False, periods=(period,)
+    )
+    featurizer = TemporalContextFeaturizer(config)
+    state = featurizer.init().replace(step_count=jnp.asarray(step_count, dtype=jnp.int32))
+
+    features = np.asarray(featurizer.features(state, jnp.zeros(1, dtype=jnp.float32)))
+
+    f32_period = float(np.float32(period))
+    cycles = np.float64(step_count % f32_period) / f32_period
+    expected = np.asarray([np.sin(2.0 * np.pi * cycles), np.cos(2.0 * np.pi * cycles)])
+    np.testing.assert_allclose(features[1:], expected, rtol=0.0, atol=1e-4)
