@@ -805,6 +805,46 @@ def test_completed_campaign_loader_rejects_each_self_consistent_final_tamper(
 
 
 @requires_o_tmpfile
+@pytest.mark.parametrize(
+    ("field", "punned"),
+    [
+        ("promotion_authorized", 0),
+        ("external_verification_required", 1),
+        ("completed_cell_count", None),
+    ],
+)
+def test_completed_campaign_loader_rejects_equal_valued_type_punned_final_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    punned: object,
+) -> None:
+    context = _context(tmp_path)
+    _complete_loader_context(context)
+    _use_loader_context(monkeypatch, context)
+    path = context.root / "completion-summary.json"
+    payload, _digest = campaign._load_json_pair(path, "completion-summary.json")
+    # ``0 == False``, ``1 == True`` and ``n == float(n)``: each forged value compares equal
+    # to the rebuilt one under Python ``==`` but has different canonical JSON bytes.
+    payload[field] = float(payload[field]) if punned is None else punned
+    raw = campaign.canonical_json_bytes(payload)
+    path.chmod(0o600)
+    path.write_bytes(raw)
+    path.chmod(0o400)
+    sidecar = path.with_name(f"{path.name}.sha256")
+    sidecar.chmod(0o600)
+    sidecar.write_bytes(f"{hashlib.sha256(raw).hexdigest()}\n".encode("ascii"))
+    sidecar.chmod(0o400)
+
+    with pytest.raises(campaign.ForagerMatchedCampaignError, match="differs from rebuilt"):
+        campaign.load_completed_open_tuning_campaign(
+            tmp_path / "qualification",
+            context.root,
+            runner=cast(Any, lambda _command: None),
+        )
+
+
+@requires_o_tmpfile
 def test_completed_campaign_loader_is_read_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -921,6 +961,45 @@ def test_scorer_failure_resumes_bound_raw_without_rerunning_candidate(
     assert completed.artifact is not None
     assert completed.pointer_present is True
     assert (failed.resumable_attempt / "failures" / "failure-000001.json").is_file()
+
+
+@requires_o_tmpfile
+@pytest.mark.parametrize(
+    ("field", "punned"),
+    [("promotion_authorized", 0), ("failure_ordinal", True), ("seed", None)],
+)
+def test_failure_ledger_rejects_equal_valued_type_punned_closure(
+    tmp_path: Path,
+    field: str,
+    punned: object,
+) -> None:
+    context = _context(tmp_path)
+    candidate_id = context.rebuilt.candidate_ids[0]
+    seed = context.rebuilt.protocol.active_seeds[0]
+    with pytest.raises(campaign.ForagerMatchedCampaignError, match="execution failed"):
+        campaign._run_one_cell(
+            context,
+            candidate_id,
+            seed,
+            campaign._scan_cell(context, candidate_id, seed),
+            _runner(context, [], fail_score=True),
+        )
+    failed = campaign._scan_cell(context, candidate_id, seed)
+    assert failed.resumable_attempt is not None
+    path = failed.resumable_attempt / "failures" / "failure-000001.json"
+    payload, _digest = campaign._load_json_pair(path, "attempt failure record")
+    payload[field] = float(payload[field]) if punned is None else punned
+    raw = campaign.canonical_json_bytes(payload)
+    path.chmod(0o600)
+    path.write_bytes(raw)
+    path.chmod(0o400)
+    sidecar = path.with_name(f"{path.name}.sha256")
+    sidecar.chmod(0o600)
+    sidecar.write_bytes(f"{hashlib.sha256(raw).hexdigest()}\n".encode("ascii"))
+    sidecar.chmod(0o400)
+
+    with pytest.raises(campaign.ForagerMatchedCampaignError, match="closure drifted"):
+        campaign._scan_cell(context, candidate_id, seed)
 
 
 @requires_o_tmpfile
