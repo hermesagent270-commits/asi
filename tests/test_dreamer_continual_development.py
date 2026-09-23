@@ -113,3 +113,29 @@ def test_validator_replays_reported_metrics() -> None:
     )
     with pytest.raises(ValueError, match="deterministic replay"):
         validate_result(dataclasses.replace(result, arms=(forged_values, *result.arms[1:])))
+
+
+@pytest.fixture(scope="module")
+def _minimal_result():  # type: ignore[no-untyped-def]
+    return run_development_lane(
+        seed=FROZEN_SEEDS[0], steps_per_task=1, replay_capacity=1, imaginations_per_step=1
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("scientific_promotion_allowed", 0),
+        ("scientific_promotion_allowed", None),
+        ("dreamer_parity_claimed", 0),
+        ("dreamer_parity_claimed", []),
+        ("seed", float(FROZEN_SEEDS[0])),
+    ],
+)
+def test_validator_rejects_type_punned_policy_flags_and_seed(
+    _minimal_result: object, field: str, value: object
+) -> None:
+    with pytest.raises(ValueError):
+        validate_result(
+            dataclasses.replace(_minimal_result, **{field: value})  # type: ignore[type-var]
+        )
