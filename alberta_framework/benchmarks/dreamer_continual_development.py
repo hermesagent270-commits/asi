@@ -145,7 +145,12 @@ class DevelopmentResult:
     dreamer_parity_claimed: bool = False
 
     def __post_init__(self) -> None:
-        if self.schema != SCHEMA or self.seed not in FROZEN_SEEDS:
+        if (
+            type(self.schema) is not str
+            or self.schema != SCHEMA
+            or type(self.seed) is not int
+            or self.seed not in FROZEN_SEEDS
+        ):
             raise ValueError("schema or frozen seed mismatch")
         _exact_int(self.steps_per_task, "steps_per_task", 1, MAX_STEPS_PER_TASK)
         _exact_int(self.replay_capacity, "replay_capacity", 1, 64)
@@ -161,13 +166,15 @@ class DevelopmentResult:
             raise ValueError("arms differ from the frozen roster")
         if type(self.identity) is not DevelopmentIdentity:
             raise ValueError("identity must be exact")
+        # Compare each stored flag with its exact required value; negating a
+        # field first would turn any falsy non-bool (0, None, []) into ``True``.
         flags = (
-            self.development_only,
-            not self.scientific_promotion_allowed,
-            self.negative_results_must_be_retained,
-            not self.dreamer_parity_claimed,
+            (self.development_only, True),
+            (self.scientific_promotion_allowed, False),
+            (self.negative_results_must_be_retained, True),
+            (self.dreamer_parity_claimed, False),
         )
-        if any(type(flag) is not bool or not flag for flag in flags):
+        if any(type(flag) is not bool or flag is not required for flag, required in flags):
             raise ValueError("result must remain retained, nonpromoting, and non-parity")
 
 

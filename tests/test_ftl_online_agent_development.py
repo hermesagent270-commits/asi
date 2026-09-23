@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+from typing import cast
 
 import jax
 import numpy as np
@@ -178,3 +180,30 @@ def test_deeper_planning_never_degrades_the_privileged_dynamics_control() -> Non
         arm = next(x for x in result.arms if x.arm_id == "privileged_dynamics_mpc")
         privileged_returns.append(sum(arm.task_returns))
     assert privileged_returns == pytest.approx([_OPTIMAL_DEFAULT_RETURN] * 3)
+
+
+@pytest.fixture(scope="module")
+def _minimal_payload() -> dict[str, object]:
+    result = run_development_lane(seed=FROZEN_SEEDS[0], steps_per_task=1, planning_horizon=1)
+    payload = json.loads(json.dumps(dataclasses.asdict(result)))
+    validate_result(payload)
+    return cast(dict[str, object], payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("scientific_promotion_allowed", 0),
+        ("scientific_promotion_allowed", None),
+        ("historical_ftl_claim_reused", 0),
+        ("historical_ftl_claim_reused", ""),
+        ("seed", float(FROZEN_SEEDS[0])),
+    ],
+)
+def test_validator_rejects_type_punned_policy_flags_and_seed(
+    _minimal_payload: dict[str, object], field: str, value: object
+) -> None:
+    forged = json.loads(json.dumps(_minimal_payload))
+    forged[field] = value
+    with pytest.raises(ValueError):
+        validate_result(forged)
