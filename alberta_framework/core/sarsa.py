@@ -1200,6 +1200,26 @@ def run_sarsa_continuing(
     )
 
 
+def _sarsa_successor_observations(
+    observations: Array,
+    terminated: Array,
+    next_observations: Array,
+) -> Array:
+    """Return the observation each row continues from, as ``run_sarsa_continuing`` does.
+
+    A terminal row never bootstraps, so the continuing runner hands the update
+    the reset observation instead: the next action is selected there and it
+    becomes the stored ``last_observation`` for the following row. In arrays
+    that reset observation is ``observations[t + 1]``. A terminal final row
+    has no following row and keeps ``next_observations[-1]``.
+    """
+    if observations.shape != next_observations.shape:
+        raise ValueError("observations and next_observations must have the same shape")
+    following = jnp.concatenate([observations[1:], next_observations[-1:]], axis=0)
+    ended = jnp.asarray(terminated) != 0
+    return jnp.where(ended[:, None], following, next_observations)
+
+
 def run_sarsa_from_arrays(
     agent: SARSAAgent,
     state: SARSAState,
@@ -1213,6 +1233,11 @@ def run_sarsa_from_arrays(
     JIT-compiled for maximum throughput. Actions are selected on-policy
     within the scan. Use this loop when transitions are pre-collected
     arrays rather than produced by a live environment interaction loop.
+
+    Row ``t`` is the transition ``observations[t] -> next_observations[t]``.
+    As in :func:`run_sarsa_continuing`, a terminal row does not bootstrap and
+    the agent continues from the reset observation ``observations[t + 1]``:
+    the next action is selected there and stored for the following update.
 
     Args:
         agent: SARSA agent
@@ -1238,26 +1263,29 @@ def run_sarsa_from_arrays(
         "next_observations", next_observations, expected=num_steps
     )
 
+    successor_observations = _sarsa_successor_observations(
+        observations, terminated, next_observations
+    )
+
     @jax.jit
     def _scan_fn(
         carry: SARSAState,
-        inputs: tuple[Array, Array, Array, Array],
+        inputs: tuple[Array, Array, Array],
     ) -> tuple[SARSAState, tuple[Array, Array, Array]]:
         s = carry
-        obs, r, term, next_obs = inputs
+        r, term, successor_obs = inputs
 
-        # Select next action for next_obs
-        next_action, new_key = agent.select_action(s, next_obs)
+        # Select the next action where the agent actually continues
+        next_action, new_key = agent.select_action(s, successor_obs)
         s = s.replace(rng_key=new_key)  # type: ignore[attr-defined]
 
-        # Update using current obs/reward/next_obs
-        result = agent.update(s, r, next_obs, term, next_action)
+        result = agent.update(s, r, successor_obs, term, next_action)
 
         return result.state, (result.q_values, result.td_error, result.action)
 
     t0 = time.time()
     final_state, (q_vals, td_errs, actions) = jax.lax.scan(
-        _scan_fn, state, (observations, rewards, terminated, next_observations)
+        _scan_fn, state, (rewards, terminated, successor_observations)
     )
     elapsed = time.time() - t0
 
@@ -1301,23 +1329,27 @@ def run_sarsa_from_arrays_final_state(
         "next_observations", next_observations, expected=num_steps
     )
 
+    successor_observations = _sarsa_successor_observations(
+        observations, terminated, next_observations
+    )
+
     @jax.jit
     def _scan_fn(
         carry: SARSAState,
-        inputs: tuple[Array, Array, Array, Array],
+        inputs: tuple[Array, Array, Array],
     ) -> tuple[SARSAState, None]:
         s = carry
-        _obs, r, term, next_obs = inputs
-        next_action, new_key = agent.select_action(s, next_obs)
+        r, term, successor_obs = inputs
+        next_action, new_key = agent.select_action(s, successor_obs)
         s = s.replace(rng_key=new_key)  # type: ignore[attr-defined]
-        result = agent.update(s, r, next_obs, term, next_action)
+        result = agent.update(s, r, successor_obs, term, next_action)
         return result.state, None
 
     t0 = time.time()
     final_state, _ = jax.lax.scan(
         _scan_fn,
         state,
-        (observations, rewards, terminated, next_observations),
+        (rewards, terminated, successor_observations),
     )
     elapsed = time.time() - t0
     final_learner = final_state.learner_state.replace(  # type: ignore[attr-defined]

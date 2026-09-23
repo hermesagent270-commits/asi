@@ -997,6 +997,68 @@ class TestSARSAScan:
         # Should run without error and produce finite results
         assert jnp.all(jnp.isfinite(result.td_errors))
 
+    def test_scan_matches_continuing_runner_across_episode_resets(self):
+        """After a terminal row the next row starts from its reset observation."""
+        from alberta_framework import run_sarsa_continuing
+
+        table = np.asarray(jr.normal(jr.key(1), (40, 3)), dtype=np.float32)
+
+        class _EpisodicEnv:
+            """Action-independent episodes of four steps over a fixed table."""
+
+            def __init__(self) -> None:
+                self.index = 0
+                self.t = 0
+
+            def reset(self):
+                self.t = 0
+                self.index += 1
+                return table[self.index - 1], {}
+
+            def step(self, action):
+                del action
+                self.t += 1
+                self.index += 1
+                return table[self.index - 1], float(self.index % 3), self.t == 4, False, {}
+
+        agent = _make_agent(n_actions=2, hidden_sizes=(), gamma=0.9, epsilon_start=0.2)
+        initial = agent.init(feature_dim=3, key=jr.key(0))
+        n_steps = 12
+        continuing = run_sarsa_continuing(agent, initial, _EpisodicEnv(), n_steps)
+
+        env = _EpisodicEnv()
+        observation, _ = env.reset()
+        rows: list[tuple[np.ndarray, float, float, np.ndarray]] = []
+        for _ in range(n_steps):
+            next_observation, reward, terminated, _, _ = env.step(0)
+            rows.append((observation, reward, float(terminated), next_observation))
+            observation = env.reset()[0] if terminated else next_observation
+        obs = jnp.asarray(np.stack([row[0] for row in rows]))
+        rewards = jnp.asarray([row[1] for row in rows], dtype=jnp.float32)
+        terminated = jnp.asarray([row[2] for row in rows], dtype=jnp.float32)
+        next_obs = jnp.asarray(np.stack([row[3] for row in rows]))
+        action, new_key = agent.select_action(initial, obs[0])
+        primed = initial.replace(  # type: ignore[attr-defined]
+            last_action=action,
+            last_observation=obs[0],
+            rng_key=new_key,
+        )
+
+        result = run_sarsa_from_arrays(agent, primed, obs, rewards, terminated, next_obs)
+        final = run_sarsa_from_arrays_final_state(
+            agent, primed, obs, rewards, terminated, next_obs
+        )
+
+        np.testing.assert_allclose(
+            np.asarray(result.td_errors), np.asarray(continuing.td_errors), atol=1e-5
+        )
+        for state in (result.state, final):
+            chex.assert_trees_all_close(
+                state.learner_state.head_params,
+                continuing.state.learner_state.head_params,
+                atol=1e-5,
+            )
+
 
 # =============================================================================
 # Scan sequence-length ceiling (hang guard)
