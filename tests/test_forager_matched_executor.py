@@ -2008,6 +2008,47 @@ def test_execute_seed_keeps_raw_archive_opaque_and_emits_hash_only_artifacts(
     assert parsed == artifacts
 
 
+def test_seed_artifact_bundle_rejects_float_punned_horizon_and_seed(
+    tmp_path: Path,
+) -> None:
+    plan, artifacts = _execute_fixture(tmp_path)
+    horizon = plan.protocol.horizon
+    seed = artifacts.seed
+
+    def rehash(bundle: dict[str, Any]) -> bytes:
+        bundle["raw_artifact_sha256"] = _canonical_sha(bundle["raw_artifact"])
+        bundle["trace_artifact"]["raw_artifact_sha256"] = bundle["raw_artifact_sha256"]
+        bundle["reward_trace_sha256"] = _canonical_sha(bundle["trace_artifact"])
+        bundle["scoring_record"]["raw_artifact_sha256"] = bundle["raw_artifact_sha256"]
+        bundle["scoring_record"]["reward_trace_sha256"] = bundle["reward_trace_sha256"]
+        bundle["scoring_record_sha256"] = _canonical_sha(bundle["scoring_record"])
+        return executor.canonical_json_bytes(bundle)
+
+    def fresh() -> dict[str, Any]:
+        return cast(
+            dict[str, Any],
+            json.loads(executor.canonical_json_bytes(artifacts.to_dict())),
+        )
+
+    # Every mutation re-derives the self-consistent digest chain, so only the
+    # value types differ from the executor-emitted canonical bundle.
+    horizon_punned = fresh()
+    for name in ("raw_artifact", "trace_artifact", "scoring_record"):
+        horizon_punned[name]["horizon"] = float(horizon)
+    horizon_punned["trace_artifact"]["reward_shape"] = [float(horizon)]
+    seed_punned = fresh()
+    for name in ("raw_artifact", "trace_artifact", "scoring_record"):
+        seed_punned[name]["seed"] = float(seed)
+
+    for bundle in (horizon_punned, seed_punned):
+        with pytest.raises(executor.ForagerMatchedExecutorError, match="drift"):
+            executor.parse_seed_artifact_bundle(rehash(bundle), plan=plan)
+    shape_punned = fresh()
+    shape_punned["trace_artifact"]["reward_shape"] = [float(horizon)]
+    with pytest.raises(executor.ForagerMatchedExecutorError, match="shape"):
+        executor.parse_seed_artifact_bundle(rehash(shape_punned), plan=plan)
+
+
 def test_score_seed_archive_resumes_after_scorer_failure_without_rerunning_candidate(
     tmp_path: Path,
 ) -> None:
