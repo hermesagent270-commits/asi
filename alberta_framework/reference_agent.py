@@ -359,6 +359,42 @@ def _cast_representable(
     return cast
 
 
+def _unpromoted_integer_array(
+    value: Any,
+    *,
+    dtype: np.dtype[Any],
+    name: str,
+    allow_integral_float: bool,
+) -> np.ndarray[Any, Any] | None:
+    """Re-read integer leaves that NumPy promoted to float64.
+
+    NumPy has no common integer dtype for builtin ints straddling the int64
+    and uint64 ranges (for example ``[2**63, 5]``) and promotes them to
+    float64, rounding every integer above 2**53.  Return the exact integers in
+    ``dtype``, or ``None`` when a leaf is not an exact integer so the caller
+    keeps its ordinary float handling.
+    """
+    leaves = np.array(value, dtype=object)
+    limits = np.iinfo(dtype)
+    integers: list[int] = []
+    for raw in leaves.reshape(-1):
+        if type(raw) is int or isinstance(raw, np.integer):
+            integer = int(raw)
+        elif (
+            allow_integral_float
+            and isinstance(raw, float | np.floating)
+            and math.isfinite(float(raw))
+            and float(raw).is_integer()
+        ):
+            integer = int(raw)
+        else:
+            return None
+        if integer < int(limits.min) or integer > int(limits.max):
+            raise ValueError(f"{name} contains a value not representable by {dtype.name}")
+        integers.append(integer)
+    return np.asarray(integers, dtype=dtype).reshape(leaves.shape)
+
+
 def _nested_tuple(value: Any) -> Any:
     if isinstance(value, list):
         return tuple(_nested_tuple(item) for item in value)
@@ -499,10 +535,28 @@ class SpaceSpec:
         highs = _numeric_array(self.high, name="box high bounds")
         if lows.shape != (size,) or highs.shape != (size,):
             raise ValueError("box bounds must contain one value per flattened shape entry")
-        if np.any(lows > highs):
+        exact_lows = exact_highs = None
+        if dtype.kind in {"i", "u"}:
+            if lows.dtype.kind == "f":
+                exact_lows = _unpromoted_integer_array(
+                    self.low, dtype=dtype, name="box low bounds", allow_integral_float=True
+                )
+            if highs.dtype.kind == "f":
+                exact_highs = _unpromoted_integer_array(
+                    self.high, dtype=dtype, name="box high bounds", allow_integral_float=True
+                )
+        if exact_lows is None and exact_highs is None and np.any(lows > highs):
             raise ValueError("every box low bound must be <= its high bound")
-        cast_lows = _cast_representable(lows, dtype=dtype, name="box low bounds")
-        cast_highs = _cast_representable(highs, dtype=dtype, name="box high bounds")
+        cast_lows = (
+            _cast_representable(lows, dtype=dtype, name="box low bounds")
+            if exact_lows is None
+            else exact_lows
+        )
+        cast_highs = (
+            _cast_representable(highs, dtype=dtype, name="box high bounds")
+            if exact_highs is None
+            else exact_highs
+        )
         if np.any(cast_lows > cast_highs):
             raise ValueError("box bounds reverse in the declared dtype")
         object.__setattr__(
@@ -616,7 +670,21 @@ class SpaceSpec:
             if array.shape != self.shape:
                 raise ValueError(f"space value shape must be {self.shape}, got {array.shape}")
             if declared_dtype.kind in {"i", "u"} and array.dtype.kind == "f":
-                raise TypeError("integer space value must be supplied as an integer, not float")
+                exact = (
+                    None
+                    if supplied_dtype is not None
+                    else _unpromoted_integer_array(
+                        value,
+                        dtype=declared_dtype,
+                        name="space value",
+                        allow_integral_float=False,
+                    )
+                )
+                if exact is None:
+                    raise TypeError(
+                        "integer space value must be supplied as an integer, not float"
+                    )
+                array = exact
             array = _cast_representable(array, dtype=declared_dtype, name="space value")
 
         if self.kind == "discrete":
