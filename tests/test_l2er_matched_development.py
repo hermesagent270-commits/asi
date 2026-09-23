@@ -425,3 +425,26 @@ def test_direct_publication_is_blocked_before_validation_or_write(
     )
     with pytest.raises(RuntimeError, match="planned seeds were already consumed"):
         matched._publish_report(-1, -1, "unused", {})
+
+
+@pytest.mark.parametrize(
+    ("history", "field", "value"),
+    [
+        ("invalid_execution_history", "pull_request", 1716.0),
+        ("retained_execution_history", "pull_request", 1753.0),
+        ("invalid_execution_history", "seeds", [1701.0, 1702, 1703]),
+    ],
+)
+def test_validator_rejects_type_punned_plan_history(
+    monkeypatch: pytest.MonkeyPatch, history: str, field: str, value: object
+) -> None:
+    monkeypatch.setattr(matched, "_validated_source_provenance", lambda value, **_: value)
+    monkeypatch.setattr(matched, "_validated_dataset_provenance", lambda value, **_: value)
+    monkeypatch.setattr(matched, "_validated_runtime_environment", lambda value, **_: value)
+    report = matched.build_report(
+        _results(), source_provenance={}, dataset_provenance={}, environment={}
+    )
+    forged = deepcopy(report)
+    forged["plan"][history][0][field] = value
+    with pytest.raises(ValueError, match="history does not match"):
+        matched.validate_report(forged, require_current_source=False)

@@ -223,6 +223,13 @@ def _finite_float(value: object, *, context: str, nonnegative: bool = False) -> 
     return value
 
 
+def _exact_json_equal(left: object, right: object) -> bool:
+    """Compare JSON trees without ``1 == 1.0 == True`` numeric punning."""
+    return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(
+        right, sort_keys=True, allow_nan=False
+    )
+
+
 def _bounded_json(value: object, *, context: str) -> object:
     """Copy one exact-JSON tree under aggregate traversal and UTF-8 budgets."""
     budget = [0, 0]
@@ -379,9 +386,9 @@ def _validated_plan(value: object) -> dict[str, object]:
         or any(type(item) is not int for item in consumed_seeds)
     ):
         raise ValueError("plan.consumed_preplan_audit_seeds must be an exact integer list")
-    if invalid_history != _invalid_execution_history():
+    if not _exact_json_equal(invalid_history, _invalid_execution_history()):
         raise ValueError("plan.invalid_execution_history does not match the audit record")
-    if retained_history != _retained_execution_history():
+    if not _exact_json_equal(retained_history, _retained_execution_history()):
         raise ValueError("plan.retained_execution_history does not match retained results")
     if (
         type(matched_axes) is not list
@@ -409,7 +416,7 @@ def _validated_plan(value: object) -> dict[str, object]:
     _finite_float(
         plan["confidence_critical"], context="plan.confidence_critical", nonnegative=True
     )
-    if plan != frozen_plan():
+    if not _exact_json_equal(plan, frozen_plan()):
         raise ValueError("report plan does not match the literal frozen plan")
     return cast(dict[str, object], plan)
 
