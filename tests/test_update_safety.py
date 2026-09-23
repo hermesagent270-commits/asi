@@ -81,3 +81,29 @@ def test_numpy_int_n_actions_remains_legal() -> None:
 def test_n_actions_must_fit_the_int32_action_sink(n_actions: object) -> None:
     with pytest.raises(ValueError, match=r"n_actions.*\[0, 2147483647\]"):
         safe_discrete_action(0, n_actions)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        2**24 + 1,
+        np.int32(2**24 + 1),
+        jnp.asarray(2**24 + 1, dtype=jnp.int32),
+        jnp.asarray(2**24 + 1, dtype=jnp.uint32),
+    ],
+)
+def test_integer_action_above_float32_mantissa_keeps_its_identity(action: object) -> None:
+    # float32 rounds 2**24 + 1 to 2**24; an exact integer code must not be
+    # silently remapped onto a neighbouring action/context row.
+    safe, valid = safe_discrete_action(action, 2**24 + 2)  # type: ignore[arg-type]
+    assert bool(valid)
+    assert int(safe) == 2**24 + 1
+
+
+def test_wide_unsigned_integer_action_is_rejected_not_wrapped() -> None:
+    safe, valid = safe_discrete_action(jnp.asarray(2**32 - 1, dtype=jnp.uint32), 3)
+    assert not bool(valid)
+    assert int(safe) == 0
+    safe, valid = safe_discrete_action(2**40, 3)
+    assert not bool(valid)
+    assert int(safe) == 0
