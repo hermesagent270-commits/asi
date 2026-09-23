@@ -1122,7 +1122,9 @@ def _expect_artifact(
         name,
         repair_missing_sidecar=repair_missing_sidecar,
     )
-    if payload != _plain(expected):
+    # Compare exact canonical bytes: Python ``==`` equates ``0``/``False``, ``1``/``True``
+    # and ``n``/``float(n)``, which canonicalize (and therefore hash) differently.
+    if canonical_json_bytes(payload) != canonical_json_bytes(expected):
         raise ForagerMatchedCampaignError(f"persisted {name} differs from rebuilt inputs")
     return digest
 
@@ -1504,7 +1506,12 @@ def _validate_failures(
             "failure_ordinal": ordinal,
             "promotion_authorized": False,
         }
-        if any(payload.get(key) != value for key, value in required.items()):
+        if any(
+            key not in payload
+            or type(payload[key]) is not type(value)
+            or payload[key] != value
+            for key, value in required.items()
+        ):
             raise ForagerMatchedCampaignError("attempt failure record closure drifted")
         if set(payload) != {
             *required,
