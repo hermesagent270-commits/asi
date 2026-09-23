@@ -1282,3 +1282,29 @@ def test_associative_pipeline_narrows_only_statically_safe_integer_dtypes() -> N
 
 # silence the import lint warnings used in the test runner
 _ = jax
+
+
+def test_associative_pipeline_update_uses_float32_default_cumulants() -> None:
+    """Omitted cumulants fall back to float32 channels of integer token observations."""
+    pipeline = make_alberta_pipeline(_small_associative_config())
+    state = pipeline.init(jr.key(0), jnp.asarray([1, 2, 3, 4, 5], dtype=jnp.int32))
+
+    result = pipeline.update(
+        state,
+        jnp.asarray([2, 3, 4, 5, 6], dtype=jnp.int32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+    )
+
+    assert int(result.state.step_count) == 1
+    # gamma=0 makes the single demon's TD target exactly its cumulant: channel 0.
+    chex.assert_trees_all_close(
+        result.horde_td_targets, jnp.asarray([2.0], dtype=jnp.float32)
+    )
+    cumulants = observation_channel_cumulant_fn(n_demons=3, observation_dim=2)(
+        jnp.asarray([7, 9], dtype=jnp.int32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+    )
+    assert cumulants.dtype == jnp.float32
+    chex.assert_trees_all_close(cumulants, jnp.asarray([7.0, 9.0, 7.0], dtype=jnp.float32))

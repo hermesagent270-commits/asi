@@ -1033,7 +1033,11 @@ class AlbertaPipelineSmokeResult:
 def observation_channel_cumulant_fn(
     n_demons: int, observation_dim: int
 ) -> CumulantFn:
-    """Return a cumulant function that maps demons to observation channels."""
+    """Return a cumulant function that maps demons to observation channels.
+
+    Cumulants are float32 Horde targets, so integer token observations (the
+    associative Step 2 mode) are converted; float32 channels pass unchanged.
+    """
     n_demons = _require_int("n_demons", n_demons, minimum=1, maximum=_INT32_MAX)
     observation_dim = _require_int(
         "observation_dim", observation_dim, minimum=1, maximum=_INT32_MAX
@@ -1045,7 +1049,7 @@ def observation_channel_cumulant_fn(
         observation: Array, _reward: Array, _terminated: Array
     ) -> Array:
         obs_1d = jnp.atleast_1d(observation)
-        return obs_1d[indices]
+        return obs_1d[indices].astype(jnp.float32)
 
     return cumulant_fn
 
