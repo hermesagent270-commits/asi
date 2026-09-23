@@ -2066,6 +2066,8 @@ class STOMPAgent:
         The returned diagnostics are ``(applied_count, mean_td_error)``.
         Average reward is intentionally not part of the carry: imagined
         outcomes must not update the real experience reward-rate estimate.
+        Likewise each backup is a one-step update from empty eligibility, and
+        the real-experience eligibility traces are restored afterwards.
         """
         cfg = self._config
         completed_mask = (models.n_completions > 0) & extended_action_mask[
@@ -2111,13 +2113,34 @@ class STOMPAgent:
                     .at[option_action]
                     .set(target)
                 )
+                # A Dyna backup is a one-step update at the anchor: start
+                # from empty eligibility so real-experience traces neither
+                # receive the imagined TD error nor absorb its gradient.
+                one_step_state = cast(
+                    MultiHeadMLPState,
+                    current_learner_state.replace(
+                        head_traces=jax.tree_util.tree_map(
+                            jnp.zeros_like, current_learner_state.head_traces
+                        ),
+                        trunk_traces=jax.tree_util.tree_map(
+                            jnp.zeros_like, current_learner_state.trunk_traces
+                        ),
+                    ),
+                )
                 update_result = self._base_learner.update(
-                    current_learner_state,
+                    one_step_state,
                     anchor_observation,
                     targets,
                 )
                 td_error = update_result.errors[option_action]
-                return update_result.state, td_sum + td_error
+                restored_state = cast(
+                    MultiHeadMLPState,
+                    update_result.state.replace(
+                        head_traces=current_learner_state.head_traces,
+                        trunk_traces=current_learner_state.trunk_traces,
+                    ),
+                )
+                return restored_state, td_sum + td_error
 
             planned_state, td_sum = jax.lax.fori_loop(
                 0,

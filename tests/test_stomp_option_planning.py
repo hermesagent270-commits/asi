@@ -6,6 +6,8 @@ are not guaranteed to restore; there is no versioned STOMP checkpoint
 migration loader in this repository.
 """
 
+import dataclasses
+
 import chex
 import jax.numpy as jnp
 import jax.random as jr
@@ -400,3 +402,47 @@ def test_matched_model_backups_reduce_option_value_error() -> None:
     np.testing.assert_allclose(float(q_disabled), 0.5, rtol=0.0, atol=1.0e-6)
     np.testing.assert_allclose(float(q_planned), 0.67195, rtol=1.0e-5, atol=1.0e-6)
     assert abs(float(q_planned) - target) < abs(float(q_disabled) - target)
+
+
+def test_planning_backup_is_one_step_and_leaves_real_eligibility_intact() -> None:
+    # A Dyna backup is a one-step update at the anchor.  Real-experience
+    # eligibility (here: an option-head trace from an earlier start state
+    # [0, 1]) must neither receive the imagined TD error nor absorb the
+    # imagined gradient.
+    config = dataclasses.replace(_config(backups=1), base_trace_decay=0.9)
+    agent = STOMPAgent(config)
+    state = _state_with_completed_model(agent)
+    learner_state = state.base_learner_state
+    traces = list(learner_state.head_traces)
+    traces[OPTION_ACTION] = (
+        jnp.array([[0.0, 1.0]], dtype=jnp.float32),
+        jnp.array([1.0], dtype=jnp.float32),
+    )
+    learner_state = learner_state.replace(head_traces=tuple(traces))
+
+    planned, backups, td_error = agent._apply_option_model_planning(
+        learner_state,
+        state.option_models,
+        ANCHOR_OBS,
+        state.base_average_reward,
+        state.step_words,
+        jnp.ones((N_PRIMITIVE + 1,), dtype=jnp.bool_),
+    )
+
+    # target = 1 - 0.5 * 2 + 0.5 * max(2, -1, 0.5) = 1; Q(anchor, o) = 0.5.
+    assert int(backups) == 1
+    np.testing.assert_allclose(float(td_error), 0.5)
+    np.testing.assert_allclose(
+        np.asarray(planned.head_params.weights[OPTION_ACTION]),
+        np.array([[0.5 + 0.05 * 0.5, 0.0]], dtype=np.float32),
+        rtol=0.0,
+        atol=1.0e-7,
+    )
+    np.testing.assert_allclose(
+        np.asarray(planned.head_params.biases[OPTION_ACTION]),
+        np.array([0.05 * 0.5], dtype=np.float32),
+        rtol=0.0,
+        atol=1.0e-7,
+    )
+    chex.assert_trees_all_equal(planned.head_traces, learner_state.head_traces)
+    chex.assert_trees_all_equal(planned.trunk_traces, learner_state.trunk_traces)
