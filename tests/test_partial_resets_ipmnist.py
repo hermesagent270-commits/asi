@@ -178,15 +178,32 @@ def test_end_to_end_record_is_strict_nonpromoting_and_resource_matched() -> None
     with pytest.raises(ValueError, match="invalid partial-reset result fields"):
         validate_partial_reset_development_record(hostile)
 
-    for section, field, punned in (
-        ("policy", "development_only", 1),
-        ("policy", "scientific_promotion_allowed", 0),
-        ("policy", "publication_equivalent", 0),
-        ("policy", "retain_negative_outcome", 1),
-        ("resources", "timing_is_selection_metric", 0),
+    for field, punned in (
+        ("development_only", 1),
+        ("scientific_promotion_allowed", 0),
+        ("publication_equivalent", 0),
+        ("retain_negative_outcome", 1),
     ):
         forged = copy.deepcopy(records[0])
-        assert forged[section][field] == punned
-        forged[section][field] = punned
-        with pytest.raises(ValueError, match="permanently nonpromoting|exact boolean"):
+        assert forged["policy"][field] == punned
+        forged["policy"][field] = punned
+        with pytest.raises(ValueError, match="permanently nonpromoting"):
+            validate_partial_reset_development_record(forged)
+
+    # ``==`` treats 0 == False and 7 == 7.0; the final record comparison must not.
+    for field in (
+        "timing_is_selection_metric",
+        "persistent_bytes",
+        "peak_numeric_bytes",
+        "environment_or_data_steps",
+        "observations",
+        "updates",
+        "model_queries",
+    ):
+        forged = copy.deepcopy(records[0])
+        value = forged["resources"][field]
+        punned = int(value) if type(value) is bool else float(value)
+        assert punned == value and type(punned) is not type(value)
+        forged["resources"][field] = punned
+        with pytest.raises(ValueError, match="resource receipt does not match the run"):
             validate_partial_reset_development_record(forged)

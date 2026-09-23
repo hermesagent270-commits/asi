@@ -10058,13 +10058,6 @@ def validate_partial_reset_development_record(record: object) -> dict[str, Any]:
         "retain_negative_outcome": True,
     } or any(type(value) is not bool for value in policy.values()):
         raise ValueError("partial-reset records are permanently nonpromoting")
-    resources_block = payload["resources"]
-    if (
-        type(resources_block) is dict
-        and "timing_is_selection_metric" in resources_block
-        and type(resources_block["timing_is_selection_metric"]) is not bool
-    ):
-        raise ValueError("timing_is_selection_metric must be an exact boolean")
     try:
         config_raw = _partial_reset_exact_object(
             payload["config"],
@@ -10168,8 +10161,19 @@ def validate_partial_reset_development_record(record: object) -> dict[str, Any]:
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("invalid partial-reset result fields") from error
     expected = partial_reset_development_record(result)
-    if payload != expected:
-        if payload.get("resources") != expected["resources"]:
+    # Canonical JSON distinguishes booleans from integers and integers from
+    # floats, which ``==`` over the record treats as equal.
+    try:
+        actual_json = json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":"))
+        expected_json = json.dumps(
+            expected, allow_nan=False, sort_keys=True, separators=(",", ":")
+        )
+        actual_resources = json.dumps(payload["resources"], sort_keys=True)
+        expected_resources = json.dumps(expected["resources"], sort_keys=True)
+    except (TypeError, ValueError) as error:
+        raise ValueError("partial-reset record must be finite strict JSON") from error
+    if actual_json != expected_json:
+        if actual_resources != expected_resources:
             raise ValueError("partial-reset resource receipt does not match the run")
         raise ValueError("partial-reset record does not match the frozen protocol")
     return expected
