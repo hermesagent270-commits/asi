@@ -260,7 +260,9 @@ def _stationary_average_reward(
 ) -> float:
     """Average reward of a unichain Markov chain with per-state step rewards.
 
-    Solves ``d @ P = d, sum(d) = 1`` as a least-squares system, which handles
+    Solves ``d @ P = d, sum(d) = 1`` as a square binary64 system (the unichain
+    balance rows have rank ``n - 1``, so any ``n - 1`` of them plus the
+    normalization row determine ``d``), which handles
     periodic chains (where power iteration would oscillate) and chains with
     transient states. The result is only meaningful for unichain kernels,
     which every caller in this module guarantees by construction.

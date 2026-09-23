@@ -1,6 +1,7 @@
 """Tests for the closed-loop micro-MDPs (actions affect observations)."""
 
 import json
+import math
 import struct
 from fractions import Fraction
 from numbers import Real
@@ -26,6 +27,8 @@ from alberta_framework.streams.closed_loop import (
     RiverSwimState,
     SwitchingTwoStateState,
     _riverswim_persistent_resources,
+    _solve_square_system,
+    _stationary_average_reward,
 )
 
 _INT32_MAX = 2**31 - 1
@@ -775,6 +778,116 @@ def test_riverswim_oracle_gain_does_not_follow_lapack_lstsq(
     round_tripped = json.loads(json.dumps(baseline))
     assert type(round_tripped) is float
     assert struct.pack(">d", round_tripped) == struct.pack(">d", baseline)
+
+
+def _exact_stationary_gain(kernel: np.ndarray, step_rewards: np.ndarray) -> Fraction:
+    """Independent exact-rational oracle: solve ``d P = d, sum(d) = 1`` in Q.
+
+    Uses every balance row (not a square subset) and asserts the exact
+    solution satisfies the full system, so it shares no code or row choice
+    with the production binary64 solver.
+    """
+    rows = [[Fraction(float(value)) for value in row] for row in np.asarray(kernel)]
+    n = len(rows)
+    rows = [[value / sum(row, Fraction(0)) for value in row] for row in rows]
+    equations = [
+        [rows[j][i] - (1 if i == j else 0) for j in range(n)] + [Fraction(0)] for i in range(n)
+    ]
+    equations.append([Fraction(1)] * n + [Fraction(1)])
+    pivots: list[int] = []
+    rank = 0
+    for column in range(n):
+        pivot = next((r for r in range(rank, len(equations)) if equations[r][column] != 0), None)
+        if pivot is None:
+            continue
+        equations[rank], equations[pivot] = equations[pivot], equations[rank]
+        head = equations[rank][column]
+        equations[rank] = [value / head for value in equations[rank]]
+        for r in range(len(equations)):
+            if r != rank and equations[r][column] != 0:
+                factor = equations[r][column]
+                equations[r] = [a - factor * b for a, b in zip(equations[r], equations[rank])]
+        pivots.append(column)
+        rank += 1
+    assert pivots == list(range(n)), "stationary distribution must be unique"
+    assert all(row[-1] == 0 for row in equations[rank:]), "balance system is inconsistent"
+    distribution = [equations[index][-1] for index in range(n)]
+    assert all(mass >= 0 for mass in distribution)
+    assert sum(distribution) == 1
+    for i in range(n):
+        assert sum(distribution[j] * rows[j][i] for j in range(n)) == distribution[i]
+    rewards = [Fraction(float(value)) for value in np.asarray(step_rewards).reshape(-1)]
+    return sum((d * r for d, r in zip(distribution, rewards, strict=True)), Fraction(0))
+
+
+@pytest.mark.parametrize("n_states", [2, 3, 4, 6])
+def test_riverswim_oracle_gains_match_exact_rational_stationary_solve(n_states: int) -> None:
+    """Every deterministic policy's gain matches an exact stationary gain.
+
+    The binary64 square solve drops one balance row; this checks it against an
+    exact rational solve of the full overdetermined system.  Development
+    measurement over ``n_states`` 2..12 (pre-freeze, 2026-09-23): positive-gain
+    policies and the optimum stay within 1.2 eps relative (the replaced LAPACK
+    lstsq path reached ~4000 eps), the uniform-random gain within 21 eps, and
+    exact-zero-gain policies (transient reward states) within 4.5e-13 absolute
+    at ``n_states=6``.  Bounds below keep at least a 3x margin.
+    """
+    env = RiverSwimMDP(RiverSwimConfig(n_states=n_states))
+    states = np.arange(n_states)
+    eps = Fraction(2**-52)
+    exact_gains: dict[tuple[int, ...], Fraction] = {}
+    for bits in range(2**n_states):
+        policy = tuple((bits >> state) & 1 for state in range(n_states))
+        actions = np.asarray(policy)
+        exact = _exact_stationary_gain(
+            env._transitions_np[actions, states], env._rewards_np[states, actions]
+        )
+        exact_gains[policy] = exact
+        error = abs(Fraction(env.policy_average_reward(policy)) - exact)
+        if exact > 0:
+            assert error <= 4 * eps * exact
+        else:
+            assert exact == 0
+            assert error <= Fraction(1, 10**11)
+    best_policy = max(exact_gains, key=exact_gains.__getitem__)
+    assert env.optimal_policy() == best_policy
+    best = exact_gains[best_policy]
+    assert abs(Fraction(env.optimal_average_reward()) - best) <= 4 * eps * best
+    uniform_exact = _exact_stationary_gain(
+        env._transitions_np.mean(axis=0), env._rewards_np.mean(axis=1)
+    )
+    uniform_error = abs(Fraction(env.uniform_random_average_reward()) - uniform_exact)
+    assert uniform_error <= 64 * eps * abs(uniform_exact)
+
+
+def test_stationary_average_reward_matches_two_state_closed_form() -> None:
+    """``pi = (b, a) / (a + b)`` for ``P = [[1 - a, a], [b, 1 - b]]``."""
+    for a, b, r0, r1 in [(0.25, 0.5, 1.0, -2.0), (0.001, 0.9, 0.0, 1.0), (1.0, 1.0, 3.0, 5.0)]:
+        kernel = np.array([[1.0 - a, a], [b, 1.0 - b]])
+        gain = _stationary_average_reward(kernel, np.array([r0, r1]))
+        expected = (b * r0 + a * r1) / (a + b)
+        assert gain == pytest.approx(expected, rel=1e-15, abs=1e-15)
+
+
+def test_solve_square_system_known_singular_and_shape_cases() -> None:
+    assert _solve_square_system([[2.0, 1.0], [1.0, 3.0]], [3.0, 5.0]) == pytest.approx(
+        [0.8, 1.4], rel=1e-15
+    )
+    assert _solve_square_system([[0.0, 1.0], [1.0, 0.0]], [2.0, 7.0]) == [7.0, 2.0]
+    # Needs partial pivoting: eliminating on the 1e-20 pivot loses x0 entirely.
+    assert _solve_square_system([[1e-20, 1.0], [1.0, 1.0]], [1.0, 2.0]) == pytest.approx(
+        [1.0, 1.0], rel=1e-15
+    )
+    with pytest.raises(ValueError, match="singular"):
+        _solve_square_system([[1.0, 2.0], [2.0, 4.0]], [1.0, 2.0])
+    with pytest.raises(ValueError, match="square"):
+        _solve_square_system([[1.0, 2.0]], [1.0])
+    with pytest.raises(ValueError, match="square"):
+        _solve_square_system([], [])
+    with pytest.raises(ValueError, match="finite"):
+        _solve_square_system([[math.nan]], [1.0])
+    with pytest.raises(ValueError, match="finite"):
+        _solve_square_system([[1.0]], [math.inf])
 
 
 def test_closed_loop_step_counts_saturate_eager_and_outer_jit() -> None:
