@@ -198,6 +198,14 @@ def _canonical_sha256(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+def _json_exact_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values by canonical bytes so ``1 == 1.0 == True`` cannot pun."""
+    try:
+        return canonical_json_bytes({"value": left}) == canonical_json_bytes({"value": right})
+    except ForagerMatchedSealError:
+        return False
+
+
 def _require_object(value: Any, label: str) -> dict[str, Any]:
     if type(value) is not dict:
         raise ForagerMatchedSealError(f"{label} must be a plain object")
@@ -794,7 +802,11 @@ def _validate_receipt_index(
         "live_runtime_identity_sha256": expected_live_runtime_identity_sha256,
         "horizon": open_protocol.horizon,
     }
-    drifted = [name for name, expected in expected_header.items() if value[name] != expected]
+    drifted = [
+        name
+        for name, expected in expected_header.items()
+        if not _json_exact_equal(value[name], expected)
+    ]
     if (
         drifted
         or active_seeds != open_protocol.active_seeds
@@ -867,7 +879,7 @@ def _validate_receipt_index(
             item["candidate_id"] != score.candidate_id
             or receipt_sha != score.execution_receipt_sha256
             or _canonical_sha256(receipt_payload) != receipt_sha
-            or receipt_payload != expected_receipt_fields
+            or not _json_exact_equal(receipt_payload, expected_receipt_fields)
         ):
             raise ForagerMatchedSealError("execution receipt preimage differs from score evidence")
 
@@ -936,7 +948,9 @@ def _validate_completion_summary(
         "score_evidence_sha256": scores.payload_sha256,
         "verification_subject_sha256": request.verification_subject_sha256,
     }
-    drifted = [name for name, value in expected.items() if summary[name] != value]
+    drifted = [
+        name for name, value in expected.items() if not _json_exact_equal(summary[name], value)
+    ]
     if drifted:
         raise ForagerMatchedSealError(
             "open completion summary closure drifted: " + ", ".join(drifted)

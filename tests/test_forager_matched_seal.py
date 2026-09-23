@@ -1268,6 +1268,52 @@ def test_receipt_index_rejects_malformed_plan_and_live_runtime_sha_fields(
         )
 
 
+def test_receipt_index_rejects_float_punned_horizon(tmp_path: Path) -> None:
+    completed, _bindings = _completed_campaign(tmp_path)
+    receipt = seal._decode_canonical(
+        completed.execution_receipt_index.canonical_bytes,
+        "test receipt index",
+    )
+    assert type(receipt["horizon"]) is int
+    receipt["horizon"] = float(receipt["horizon"])
+    unsigned = {key: value for key, value in receipt.items() if key != "payload_sha256"}
+    receipt["payload_sha256"] = _canonical_sha(unsigned)
+
+    with pytest.raises(seal.ForagerMatchedSealError, match="closure drifted"):
+        seal._validate_receipt_index(
+            receipt,
+            completed.protocol,
+            completed.score_evidence,
+            expected_plan_sha256=completed.plan.plan_sha256,
+            expected_live_runtime_identity_sha256=(
+                completed.live_runtime.identity_sha256
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("candidate_count", "seed_count", "completed_cell_count"),
+)
+def test_completion_summary_rejects_float_punned_counts(tmp_path: Path, field: str) -> None:
+    completed, _bindings = _completed_campaign(tmp_path)
+    receipt_index = seal._decode_canonical(
+        completed.execution_receipt_index.canonical_bytes,
+        "test receipt index",
+    )
+    summary = dict(completed.completion_summary)
+    assert type(summary[field]) is int
+    summary[field] = float(summary[field])
+
+    with pytest.raises(seal.ForagerMatchedSealError, match="completion summary closure"):
+        seal._validate_completion_summary(
+            summary,
+            receipt_index,
+            completed.score_evidence,
+            completed.verification_request,
+        )
+
+
 def test_canonical_json_replay_enforces_node_and_depth_bounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
