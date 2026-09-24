@@ -252,6 +252,12 @@ _PAPER_TIE_BREAK = "variant_id_ascending"
 # change invalidates existing matrix artifacts instead of silently changing
 # their meaning.  Schema 2.4 keeps the 2.3 contract, while schema 2.5 adds the
 # explicitly pinned Threefry implementation without rewriting the older bytes.
+# The 2.2-2.4 digests therefore do not name the PRNG implementation: those
+# artifacts are stream-identical only for runs made under the default
+# ``jax_default_prng_impl="threefry2x32"``.  Resume additionally binds the
+# source-tree digest and the ambient ``jax_default_prng_impl`` in the execution
+# identity, so an artifact recorded under another ambient implementation fails
+# closed instead of resuming on the pinned Threefry roots.
 _EXPECTED_ENVIRONMENT_RNG_SCHEDULE_SHA256 = (
     "51d811e6fccd2b015b1703f22775f880089bbca3fc8938421ad3e18526882cb0"
 )
