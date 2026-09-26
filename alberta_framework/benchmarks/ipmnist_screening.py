@@ -4968,7 +4968,7 @@ def _make_rls_head_learner(
             # horizon).  Rescale P to the trace cap whenever it exceeds it;
             # under the cap the step is bitwise untouched.
             new_p = new_p * jnp.minimum(1.0, trace_cap / jnp.trace(new_p))
-        err_after = y_onehot - new_wout.T @ phi
+        err_after = y_onehot - new_wout.T @ _phi(new_params, x_norm)
         loss_after = 0.5 * jnp.sum(err_after * err_after)
         plasticity = jnp.clip(
             1.0 - loss_after / jnp.maximum(loss, _PLASTICITY_LOSS_FLOOR), 0.0, 1.0

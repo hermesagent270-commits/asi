@@ -5218,6 +5218,45 @@ class TestDiscoveredRuleFactoryWave2:
         assert float(state_unc.kalman_p[0]) < 10.0
 
 
+@pytest.mark.parametrize(
+    "arm", ["rls_head_resid_l1_preset005", "rls_head_l1_preset005"]
+)
+def test_rls_head_plasticity_scores_the_post_update_model(arm: str) -> None:
+    hp = screening_spec(arm).hyperparameters
+    init_fn, step_fn = screening_spec(arm).factory(hp)
+    params = init_mlp_params(jr.key(0), SMALL)
+    state = init_fn(params)
+    step = jax.jit(step_fn)
+    rng = np.random.default_rng(0)
+    gaps = []
+    for t in range(20):
+        x = jnp.asarray(rng.uniform(-1.0, 1.0, SMALL.input_dim).astype(np.float32))
+        y = jnp.asarray(int(rng.integers(0, SMALL.n_classes)), dtype=jnp.int32)
+        x_norm = shift_adaptive_normalize(
+            state.norm,
+            state.fast_mean,
+            x,
+            decay=hp["norm_decay"],
+            fast_decay=hp["fast_decay"],
+            epsilon=hp["norm_epsilon"],
+            shift_k=hp["shift_k"],
+            shift_delta=hp["shift_delta"],
+            shift_refractory=hp["shift_refractory"],
+        )[0]
+        new_params, new_state, (_, loss, plasticity) = step(params, state, x, y, jr.key(t))
+        m = new_params["w2"].shape[1] + 1
+        a1 = jax.nn.relu(x_norm @ new_params["w1"] + new_params["b1"])
+        a2 = jax.nn.relu(a1 @ new_params["w2"] + new_params["b2"])
+        phi_after = jnp.concatenate([a2 / math.sqrt(m), jnp.ones((1,), jnp.float32)])
+        err_after = jax.nn.one_hot(y, SMALL.n_classes) - new_state.wout.T @ phi_after
+        loss_after = 0.5 * jnp.sum(err_after * err_after)
+        expected = jnp.clip(1.0 - loss_after / jnp.maximum(loss, 1e-8), 0.0, 1.0)
+        gaps.append(abs(float(plasticity) - float(expected)))
+        params, state = new_params, new_state
+    # Float32 rounding stays near 1e-7; scoring the pre-update body drifts to ~1e-3.
+    assert max(gaps) < 1e-5, max(gaps)
+
+
 class TestRLSHead:
     """Convergence-shortfall attack: champion body + RLS readout.
 
@@ -5503,7 +5542,9 @@ class TestRLSHead:
                     np.asarray(getattr(gated_state.norm, field)),
                     f"gated norm.{field}",
                 )
-            for actual, expected in zip(plain_metrics, gated_metrics):
+            # Accuracy and loss are pre-update; plasticity scores each arm's own
+            # post-update body, which the gate is allowed to change.
+            for actual, expected in zip(plain_metrics[:2], gated_metrics[:2]):
                 np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
             assert int(plain_state.step) == 0
             for name in sorted(params):
