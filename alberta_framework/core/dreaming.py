@@ -944,6 +944,13 @@ def dream_one_step(
         behavior_prediction.action,
         model_key,
     )
+    expected_observation_shape = jnp.asarray(rollout_state.observation).shape
+    actual_observation_shape = jnp.asarray(world_prediction.next_observation).shape
+    if actual_observation_shape != expected_observation_shape:
+        raise ValueError(
+            f"next_observation must have shape {expected_observation_shape}; "
+            f"got {actual_observation_shape}"
+        )
     confidence_ok = world_prediction.confidence >= jnp.asarray(
         cfg.confidence_threshold,
         dtype=jnp.float32,
