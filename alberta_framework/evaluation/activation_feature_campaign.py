@@ -770,8 +770,12 @@ def validate_plan(
     claimed = plan["plan_sha256"]
     if not _is_sha256(claimed) or claimed != _digest(expected):
         raise ValueError("plan digest drifted")
-    expected["plan_sha256"] = claimed
-    if plan != expected:
+    # Compare the supplied record's own canonical bytes, not Python equality:
+    # ``1 == True`` and ``55 == 55.0`` would otherwise admit a record whose
+    # bytes no longer hash to the digest it carries.
+    supplied = dict(plan)
+    supplied.pop("plan_sha256")
+    if _canonical(supplied) != _canonical(expected):
         raise ValueError("plan differs from the current literal frozen plan")
     return plan
 
@@ -1291,8 +1295,12 @@ def validate_aggregate(value: object) -> dict[str, object]:
     claimed = aggregate["aggregate_sha256"]
     if not _is_sha256(claimed) or claimed != _digest(expected):
         raise ValueError("aggregate digest drifted")
-    expected["aggregate_sha256"] = claimed
-    if aggregate != expected:
+    # Canonical-bytes compare so a type-punned record (``True`` -> ``1``,
+    # ``55`` -> ``55.0``) cannot pass while its own bytes no longer hash to the
+    # digest it carries.
+    supplied = dict(aggregate)
+    supplied.pop("aggregate_sha256")
+    if _canonical(supplied) != _canonical(expected):
         raise ValueError("aggregate statistics, roster, resources, or policy drifted")
     return aggregate
 

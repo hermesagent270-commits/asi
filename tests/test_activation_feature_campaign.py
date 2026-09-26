@@ -609,6 +609,40 @@ def test_aggregate_rejects_missing_duplicate_and_self_consistent_statistic_forge
     not all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_TMPFILE")),
     reason="strict loader/publication requires Linux descriptor support",
 )
+def test_plan_and_aggregate_reject_type_punned_records_keeping_their_digest(
+    cheap_plan: dict[str, object], data: tuple[np.ndarray, np.ndarray]
+) -> None:
+    """A punned scalar keeps Python equality but changes the canonical bytes.
+
+    ``55 == 55.0`` and ``True == 1``, so a ``!=`` compare admitted records whose
+    own bytes no longer hash to the digest they carry.
+    """
+    punned_plan = copy.deepcopy(cheap_plan)
+    cast(dict[str, Any], punned_plan["config"])["task_length"] = float(
+        cast(dict[str, Any], cheap_plan["config"])["task_length"]
+    )
+    assert punned_plan == cheap_plan
+    with pytest.raises(ValueError, match="literal frozen plan"):
+        campaign.validate_plan(punned_plan, data_x=data[0], data_y=data[1])
+
+    shards = _matrix(cheap_plan, data)
+    aggregate = cast(dict[str, Any], campaign.build_aggregate(cheap_plan, shards))
+    campaign.validate_aggregate(aggregate)
+    shard_count = aggregate["summary"]["shard_count"]
+    for section, field, value in (
+        ("summary", "shard_count", float(shard_count)),
+        ("policy", "development_only", 1),
+    ):
+        punned = copy.deepcopy(aggregate)
+        punned[section][field] = value
+        assert punned == aggregate
+        unsigned = dict(punned)
+        unsigned.pop("aggregate_sha256")
+        assert campaign._digest(unsigned) != punned["aggregate_sha256"]
+        with pytest.raises(ValueError, match="drifted"):
+            campaign.validate_aggregate(punned)
+
+
 def test_strict_file_admission_and_append_only_writer(
     cheap_plan: dict[str, object], tmp_path: Path, authorized: None
 ) -> None:
@@ -774,3 +808,4 @@ def test_publication_rejects_zero_write_and_nonregular_reread_swap(
         monkeypatch.setattr(campaign, "_link_unnamed_file", link_then_swap)
         with pytest.raises(ValueError, match="regular file"):
             campaign._publish_reserved_json(target, cheap_plan)
+
