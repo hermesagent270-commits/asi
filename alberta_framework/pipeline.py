@@ -1747,6 +1747,7 @@ class AlbertaPipeline:
             if associative_labels is not None
             else jnp.zeros((observations.shape[0],), dtype=jnp.int32)
         )
+        use_upgd_targets = self._config.step2 == "upgd" and upgd_targets is not None
         use_associative_labels = (
             self._config.step2 == "associative" and associative_labels is not None
         )
@@ -1791,7 +1792,7 @@ class AlbertaPipeline:
                 reward_t,
                 terminated_t,
                 cumulants_t,
-                upgd_target_t if self._config.step2 == "upgd" else None,
+                upgd_target_t if use_upgd_targets else None,
                 associative_label_t if use_associative_labels else None,
             )
             return result.state, (

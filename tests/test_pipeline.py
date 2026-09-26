@@ -1282,3 +1282,31 @@ def test_associative_pipeline_narrows_only_statically_safe_integer_dtypes() -> N
 
 # silence the import lint warnings used in the test runner
 _ = jax
+
+
+def test_upgd_run_arrays_without_targets_keeps_the_trunk_frozen() -> None:
+    config = AlbertaPipelineConfig(
+        step2="upgd",
+        upgd=Step2UPGDConfig(observation_dim=4, n_heads=1, hidden_sizes=(8,)),
+    )
+    pipeline = make_alberta_pipeline(config)
+    steps = 40
+    observations = jr.normal(jr.key(1), (steps + 1, 4), dtype=jnp.float32)
+    state = pipeline.init(jr.key(0), observations[0])
+
+    result = pipeline.run_arrays(
+        state,
+        observations[1:],
+        jnp.tanh(observations[1:, 0]),
+        jnp.zeros((steps,), dtype=jnp.float32),
+        observations[1:, jnp.arange(config.horde.n_demons) % 4],
+    )
+
+    assert state.upgd_state is not None
+    assert result.state.upgd_state is not None
+    chex.assert_trees_all_equal(
+        result.state.upgd_state.trunk_params, state.upgd_state.trunk_params
+    )
+    chex.assert_trees_all_equal(
+        result.state.upgd_state.head_params, state.upgd_state.head_params
+    )
