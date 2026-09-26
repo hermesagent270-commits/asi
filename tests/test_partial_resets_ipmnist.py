@@ -135,6 +135,54 @@ def test_each_reduction_engages_relative_to_off(name: str) -> None:
     )
 
 
+@pytest.mark.parametrize("name", ("cpr_ipmnist", "cpr_hard_reset", "cpr_utility_free"))
+@pytest.mark.parametrize("compiled", (False, True))
+def test_periodic_resets_first_engage_after_the_completed_interval(
+    name: str, compiled: bool
+) -> None:
+    """Pinned official frequency 2 resets on updates 3 and 5, never 1 or 2."""
+    hp = dict(screening_spec(name).hyperparameters)
+    hp["reset_frequency"] = 2.0
+    init_fn, step_fn = _make_cpr_ipmnist_learner(hp)
+    off_hp = {**hp, "mode_code": 4.0}
+    _, off_step = _make_cpr_ipmnist_learner(off_hp)
+    if compiled:
+        step_fn = jax.jit(step_fn)
+        off_step = jax.jit(off_step)
+    params = init_mlp_params(jr.key(15630, impl="threefry2x32"), SMALL)
+    state = init_fn(params)
+    x = jr.normal(jr.key(15631, impl="threefry2x32"), (SMALL.input_dim,))
+    y = jnp.asarray(1, dtype=jnp.int32)
+    key = jr.key(15632, impl="threefry2x32")
+    observed_resets = []
+    for update in range(1, 6):
+        new_params, new_state, metrics = step_fn(params, state, x, y, key)
+        control_params, control_state, control_metrics = off_step(params, state, x, y, key)
+        changed = any(
+            not np.array_equal(np.asarray(new_params[field]), np.asarray(control_params[field]))
+            for field in params
+        )
+        if changed:
+            observed_resets.append(update)
+            assert all(
+                bool(jnp.all(value == 1.0)) for value in new_state.utility.values()
+            )
+        else:
+            for field in params:
+                np.testing.assert_array_equal(
+                    new_state.utility[field], control_state.utility[field]
+                )
+            assert jax.tree_util.tree_all(
+                jax.tree_util.tree_map(jnp.array_equal, metrics, control_metrics)
+            )
+        assert int(new_state.step) == update
+        assert jax.tree_util.tree_all(
+            jax.tree_util.tree_map(jnp.array_equal, new_state.norm, control_state.norm)
+        )
+        params, state = new_params, new_state
+    assert observed_resets == [3, 5]
+
+
 def test_end_to_end_record_is_strict_nonpromoting_and_resource_matched() -> None:
     x, y = _data()
     records = []

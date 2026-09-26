@@ -6581,6 +6581,9 @@ def _make_cpr_ipmnist_learner(
     parameter-keyed.  It retains the paper's layer/tensor mean normalization,
     Eq. 6 sigmoid shape (kappa=16), periodic pull, and reset-to-retained-init
     operator.  This protocol difference is bound in the result receipt.
+    Periodic modes use the pinned official pre-update clock: frequency F
+    first resets on update F+1, after F completed updates, then every F
+    updates.
     """
     mode_code = int(hp["mode_code"])
     if mode_code not in range(5):
@@ -6627,7 +6630,7 @@ def _make_cpr_ipmnist_learner(
         sgd_params = {
             name: params[name] - step_size * grads[name] for name in params
         }
-        at_reset = jnp.equal(jnp.mod(new_step, reset_frequency), 0)
+        at_reset = (state.step > 0) & jnp.equal(jnp.mod(state.step, reset_frequency), 0)
         new_params: dict[str, Array] = {}
         for name in params:
             mean_utility = jnp.mean(utility[name])
