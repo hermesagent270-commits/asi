@@ -1037,6 +1037,9 @@ def observation_channel_cumulant_fn(
 
     Cumulants are float32 Horde targets, so integer token observations (the
     associative Step 2 mode) are converted; float32 channels pass unchanged.
+    The pipeline admits only those two observation dtypes; a direct caller
+    passing float64 channels under ``jax_enable_x64`` gets them rounded to
+    float32.
     """
     n_demons = _require_int("n_demons", n_demons, minimum=1, maximum=_INT32_MAX)
     observation_dim = _require_int(
