@@ -1249,18 +1249,18 @@ class MultiHeadMLPLearner:
             optimizer_updates_applied.append(b_update_applied)
 
         # Trunk bounding (pseudo_error=1.0 since error is in gradient)
-        # Scale traces by the bounding factor for consistency with future updates
         trunk_bounding_metric = jnp.array(1.0, dtype=jnp.float32)
         if self._bounder is not None:
             trunk_params_flat: list[Array] = []
             for i in range(n_trunk_layers):
                 trunk_params_flat.append(state.trunk_params.weights[i])
                 trunk_params_flat.append(state.trunk_params.biases[i])
+            # The bounder's metric is a reporting scalar (ObGD's step scale,
+            # AGC's clipped-unit fraction); it must never scale the traces.
             bounded_trunk_steps, trunk_bounding_metric = self._bounder.bound(
                 tuple(trunk_steps), jnp.array(1.0), tuple(trunk_params_flat)
             )
             trunk_steps = list(bounded_trunk_steps)
-            new_trunk_traces = [trunk_bounding_metric * t for t in new_trunk_traces]
 
         # Apply trunk updates (no error multiply -- error already in gradient)
         new_trunk_weights: list[Array] = []
@@ -1328,15 +1328,13 @@ class MultiHeadMLPLearner:
             optimizer_updates_applied.extend((w_update_applied, b_update_applied))
 
             step_error = _gradient_step_error(head_opt, error_i)
-            # Head bounding — scale traces by the bounding factor so that
-            # future trace-based updates reflect the effective step magnitude
+            # Head bounding only rescales the applied step; the traces keep
+            # their gamma * lambda decay.
             if self._bounder is not None:
-                bounded_head_steps, bound_scale = self._bounder.bound(
+                bounded_head_steps, _bound_metric = self._bounder.bound(
                     (w_step, b_step), step_error, (head_w, head_b)
                 )
                 w_step, b_step = bounded_head_steps
-                new_w_trace = bound_scale * new_w_trace
-                new_b_trace = bound_scale * new_b_trace
 
             # Apply: param += error_i * step
             new_w = head_w + step_error * w_step

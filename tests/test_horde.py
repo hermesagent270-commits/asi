@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 
 from alberta_framework import (
+    LMS,
+    AGCBounding,
     Autostep,
     BatchedHordeResult,
     DemonType,
@@ -16,6 +18,7 @@ from alberta_framework import (
     GVFSpec,
     HordeLearner,
     HordeLearningResult,
+    IndependentDemonHorde,
     MultiHeadMLPLearner,
     MultiHeadMLPState,
     ObGDBounding,
@@ -387,6 +390,76 @@ class TestHordeTraceDecay:
         h0_w_trace = r2.state.head_traces[0][0]
         h1_w_trace = r2.state.head_traces[1][0]
         assert not jnp.allclose(h0_w_trace, h1_w_trace)
+
+    @pytest.mark.parametrize("learner_cls", [HordeLearner, IndependentDemonHorde])
+    @pytest.mark.parametrize("bounded", ["obgd", "agc_clips_nothing"])
+    def test_bounder_metric_never_scales_traces(
+        self, learner_cls: type[HordeLearner] | type[IndependentDemonHorde], bounded: str
+    ) -> None:
+        """Bounding rescales the applied step only; traces decay by gamma*lambda.
+
+        ``Bounder.bound`` returns ``(steps, metric)`` where the metric is for
+        reporting (ObGD's step scale, AGC's clipped-unit fraction, 0.0 when
+        nothing is clipped). Multiplying it into the stored traces attenuated
+        ObGD traces and zeroed AGC traces. A linear demon must match the
+        textbook ObGD semi-gradient TD(lambda) reference.
+        """
+        alpha, gamma, lamda, kappa, dim, n_steps = 0.05, 0.9, 0.8, 2.0, 3, 8
+        spec = create_horde_spec(
+            [
+                GVFSpec(
+                    name="d",
+                    demon_type=DemonType.PREDICTION,
+                    gamma=gamma,
+                    lamda=lamda,
+                    cumulant_index=0,
+                )
+            ]
+        )
+        rng = np.random.default_rng(0)
+        xs = rng.normal(size=(n_steps + 1, dim)).astype(np.float32)
+        cumulants = (3.0 * rng.normal(size=n_steps)).astype(np.float32)
+        bounder = ObGDBounding(kappa=kappa) if bounded == "obgd" else AGCBounding(clip_factor=1e6)
+        learner = learner_cls(
+            spec,
+            hidden_sizes=(),
+            optimizer=LMS(step_size=alpha),
+            bounder=bounder,
+            sparsity=0.0,
+            use_layer_norm=False,
+        )
+        state = learner.init(dim, jr.key(0))
+
+        def head(s: object) -> tuple[np.ndarray, float]:
+            if isinstance(s, MultiHeadMLPState):
+                w, b = s.head_params.weights[0], s.head_params.biases[0]
+            else:
+                params = s.demon_states[0].params  # type: ignore[attr-defined]
+                w, b = params.weights[0], params.biases[0]
+            return np.asarray(w, dtype=np.float64).reshape(-1), float(np.asarray(b).reshape(-1)[0])
+
+        w, b = head(state)
+        z_w, z_b = np.zeros(dim), 0.0
+        min_scale = 1.0
+        for t in range(n_steps):
+            state = learner.update(
+                state, jnp.asarray(xs[t]), jnp.asarray(cumulants[t : t + 1]), jnp.asarray(xs[t + 1])
+            ).state
+            x, x_next = xs[t].astype(np.float64), xs[t + 1].astype(np.float64)
+            delta = cumulants[t] + gamma * (w @ x_next + b) - (w @ x + b)
+            z_w, z_b = gamma * lamda * z_w + x, gamma * lamda * z_b + 1.0
+            scale = 1.0
+            if bounded == "obgd":
+                total = alpha * (np.abs(z_w).sum() + abs(z_b))
+                scale = 1.0 / max(kappa * max(abs(delta), 1.0) * total, 1.0)
+            min_scale = min(min_scale, scale)
+            w, b = w + scale * alpha * delta * z_w, b + scale * alpha * delta * z_b
+
+        if bounded == "obgd":
+            assert min_scale < 0.9  # the bound was active
+        coded_w, coded_b = head(state)
+        np.testing.assert_allclose(coded_w, w, rtol=0.0, atol=1e-4)
+        np.testing.assert_allclose(coded_b, b, rtol=0.0, atol=1e-4)
 
 
 # =============================================================================
